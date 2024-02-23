@@ -27,48 +27,36 @@
 import typing as t
 
 from pydantic import BaseModel
-import abc
 
+import smartsim._core.schemas.utils as _utils
 from smartsim._core.schemas.types import NonEmptyStr
+
 
 class DragonResponse(BaseModel):
     error_message: t.Optional[str] = None
 
-    @staticmethod
-    @abc.abstractmethod
-    def type() -> str: ...
+
+response_serializer = _utils.SchemaSerializer[str, DragonResponse]("response_type")
 
 
+@response_serializer.register("run")
 class DragonRunResponse(DragonResponse):
     step_id: NonEmptyStr
 
-    @staticmethod
-    def type() -> str:
-        return "run"
 
-
+@response_serializer.register("status_update")
 class DragonUpdateStatusResponse(DragonResponse):
     # status is a dict: {step_id: (is_alive, returncode)}
     statuses: t.Mapping[NonEmptyStr, t.Tuple[NonEmptyStr, t.Optional[t.List[int]]]] = {}
 
-    @staticmethod
-    def type() -> str:
-        return "status_update"
+
+@response_serializer.register("stop")
+class DragonStopResponse(DragonResponse): ...
 
 
-class DragonStopResponse(DragonResponse):
-    @staticmethod
-    def type() -> str:
-        return "stop"
+@response_serializer.register("handshake")
+class DragonHandshakeResponse(DragonResponse): ...
 
 
-class DragonHandshakeResponse(DragonResponse):
-    @staticmethod
-    def type() -> str:
-        return "handshake"
-
-
-class DragonBootstrapResponse(DragonResponse):
-    @staticmethod
-    def type() -> str:
-        return "bootstrap"
+@response_serializer.register("bootstrap")
+class DragonBootstrapResponse(DragonResponse): ...

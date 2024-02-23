@@ -25,17 +25,17 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import typing as t
-import abc
 
 from pydantic import BaseModel, PositiveInt
 
+import smartsim._core.schemas.utils as _utils
 from smartsim._core.schemas.types import NonEmptyStr
 
 
-class DragonRequest(BaseModel, abc.ABC):
-    @staticmethod
-    @abc.abstractmethod
-    def type() -> str: ...
+class DragonRequest(BaseModel): ...
+
+
+request_serializer = _utils.SchemaSerializer[str, DragonRequest]("request_type")
 
 
 class DragonRunRequestView(DragonRequest):
@@ -50,11 +50,8 @@ class DragonRunRequestView(DragonRequest):
     name: t.Optional[NonEmptyStr]
     pmi_enabled: bool = True
 
-    @staticmethod
-    def type() -> str:
-        return "run"
 
-
+@request_serializer.register("run")
 class DragonRunRequest(DragonRunRequestView):
     current_env: t.Dict[str, t.Optional[str]] = {}
 
@@ -62,31 +59,20 @@ class DragonRunRequest(DragonRunRequestView):
         return str(DragonRunRequestView.parse_obj(self.dict(exclude={"current_env"})))
 
 
+@request_serializer.register("update_status")
 class DragonUpdateStatusRequest(DragonRequest):
     step_ids: t.List[NonEmptyStr]
 
-    @staticmethod
-    def type() -> str:
-        return "update_status"
 
-
+@request_serializer.register("stop")
 class DragonStopRequest(DragonRequest):
     step_id: NonEmptyStr
 
-    @staticmethod
-    def type() -> str:
-        return "stop"
+
+@request_serializer.register("handshake")
+class DragonHandshakeRequest(DragonRequest): ...
 
 
-class DragonHandshakeRequest(DragonRequest):
-    @staticmethod
-    def type() -> str:
-        return "handshake"
-
-
+@request_serializer.register("bootstrap")
 class DragonBootstrapRequest(DragonRequest):
     address: NonEmptyStr
-
-    @staticmethod
-    def type() -> str:
-        return "bootstrap"
