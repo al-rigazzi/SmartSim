@@ -24,55 +24,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import typing as t
-
-from pydantic import BaseModel, PositiveInt
-
-import smartsim._core.schemas.utils as _utils
-from smartsim._core.schemas.types import NonEmptyStr
+import pydantic
 
 
-class DragonRequest(BaseModel): ...
-
-
-request_serializer = _utils.SchemaSerializer[str, DragonRequest]("request_type")
-
-
-class DragonRunRequestView(DragonRequest):
-    exe: NonEmptyStr
-    exe_args: t.List[NonEmptyStr] = []
-    path: NonEmptyStr
-    nodes: PositiveInt = 1
-    tasks: PositiveInt = 1
-    output_file: t.Optional[NonEmptyStr] = None
-    error_file: t.Optional[NonEmptyStr] = None
-    env: t.Dict[str, t.Optional[str]] = {}
-    name: t.Optional[NonEmptyStr]
-    pmi_enabled: bool = True
-
-
-@request_serializer.register("run")
-class DragonRunRequest(DragonRunRequestView):
-    current_env: t.Dict[str, t.Optional[str]] = {}
-
-    def __str__(self) -> str:
-        return str(DragonRunRequestView.parse_obj(self.dict(exclude={"current_env"})))
-
-
-@request_serializer.register("update_status")
-class DragonUpdateStatusRequest(DragonRequest):
-    step_ids: t.List[NonEmptyStr]
-
-
-@request_serializer.register("stop")
-class DragonStopRequest(DragonRequest):
-    step_id: NonEmptyStr
-
-
-@request_serializer.register("handshake")
-class DragonHandshakeRequest(DragonRequest): ...
-
-
-@request_serializer.register("bootstrap")
-class DragonBootstrapRequest(DragonRequest):
-    address: NonEmptyStr
+class NonEmptyStr(pydantic.ConstrainedStr):
+    min_length = 1

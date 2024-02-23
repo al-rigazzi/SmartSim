@@ -24,38 +24,39 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# mypy: disable-error-code="valid-type"
-
 import typing as t
 
-from pydantic import BaseModel, constr
+from pydantic import BaseModel
+
+import smartsim._core.schemas.utils as _utils
+from smartsim._core.schemas.types import NonEmptyStr
 
 
 class DragonResponse(BaseModel):
-    response_type: constr(min_length=1)
     error_message: t.Optional[str] = None
 
 
+response_serializer = _utils.SchemaSerializer[str, DragonResponse]("response_type")
+
+
+@response_serializer.register("run")
 class DragonRunResponse(DragonResponse):
-    response_type: constr(min_length=1) = "run"
-    step_id: constr(min_length=1)
+    step_id: NonEmptyStr
 
 
+@response_serializer.register("status_update")
 class DragonUpdateStatusResponse(DragonResponse):
-    response_type: constr(min_length=1) = "status_update"
     # status is a dict: {step_id: (is_alive, returncode)}
-    statuses: t.Mapping[
-        constr(min_length=1), t.Tuple[constr(min_length=1), t.Optional[t.List[int]]]
-    ] = {}
+    statuses: t.Mapping[NonEmptyStr, t.Tuple[NonEmptyStr, t.Optional[t.List[int]]]] = {}
 
 
-class DragonStopResponse(DragonResponse):
-    response_type: constr(min_length=1) = "stop"
+@response_serializer.register("stop")
+class DragonStopResponse(DragonResponse): ...
 
 
-class DragonHandshakeResponse(DragonResponse):
-    response_type: constr(min_length=1) = "handshake"
+@response_serializer.register("handshake")
+class DragonHandshakeResponse(DragonResponse): ...
 
 
-class DragonBootstrapResponse(DragonResponse):
-    response_type: constr(min_length=1) = "bootstrap"
+@response_serializer.register("bootstrap")
+class DragonBootstrapResponse(DragonResponse): ...
