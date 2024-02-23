@@ -37,6 +37,8 @@ from pydantic import ValidationError
 
 from smartsim._core.launcher.dragon.dragonBackend import DragonBackend
 from smartsim._core.schemas import DragonBootstrapRequest, DragonBootstrapResponse
+from smartsim._core.schemas.dragonRequests import request_serializer
+from smartsim._core.schemas.dragonResponses import response_serializer
 from smartsim._core.utils.network import get_best_interface_and_address
 
 # kill is not catchable
@@ -89,10 +91,10 @@ def run(dragon_head_address: str) -> None:
         print(f"Listening to {dragon_head_address}")
         req = dragon_head_socket.recv_json()
         print(f"Received request: {req}")
-        json_req = json.loads(str(req))
-        resp = dragon_backend.process_request(json_req)
+        drg_req = request_serializer.deserialize_from_json(str(req))
+        resp = dragon_backend.process_request(drg_req)
         print(f"Sending response {resp}", flush=True)
-        dragon_head_socket.send_json(resp.json())
+        dragon_head_socket.send_json(response_serializer.serialize_to_json(resp))
 
 
 def main(args: argparse.Namespace) -> int:
@@ -111,14 +113,16 @@ def main(args: argparse.Namespace) -> int:
         launcher_socket = context.socket(zmq.REQ)
         launcher_socket.connect(args.launching_address)
         request = DragonBootstrapRequest(address=dragon_head_address)
-        launcher_socket.send_json(request.json())
+        launcher_socket.send_json(request_serializer.serialize_to_json(request))
         message = t.cast(str, launcher_socket.recv_json())
-        try:
-            DragonBootstrapResponse.parse_obj(json.loads(message))
-        except ValidationError as e:
+        reveal_type(message)
+
+        if not isinstance(
+            response_serializer.deserialize_from_json(message), DragonBootstrapResponse
+        ):
             raise ValueError(
                 "Could not receive connection confirmation from launcher. Aborting."
-            ) from e
+            )
 
     print_summary(interface, dragon_head_address)
 
