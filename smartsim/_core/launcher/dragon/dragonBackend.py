@@ -62,7 +62,7 @@ class DragonBackend:
 
     def __init__(self) -> None:
         self._request_to_function: t.Mapping[
-            str, t.Callable[[t.Any], DragonResponse]
+            str, t.Callable[[t.Mapping[str, t.Any]], DragonResponse]
         ] = {
             "run": self.run,
             "update_status": self.update_status,
@@ -78,8 +78,8 @@ class DragonBackend:
             self._step_id += 1
             return str(self._step_id)
 
-    def process_request(self, request: DragonRequest) -> DragonResponse:
-        req_type = DragonRequest.parse_obj(request).request_type
+    def process_request(self, request: t.Mapping[str, t.Any]) -> DragonResponse:
+        req_type = DragonRequest.parse_obj(request).type()
         if not req_type:
             raise ValueError("Malformed request contains empty ``request_type`` field.")
         if req_type not in self._request_to_function:
@@ -87,7 +87,7 @@ class DragonBackend:
 
         return self._request_to_function[req_type](request)
 
-    def run(self, request: DragonRunRequest) -> DragonRunResponse:
+    def run(self, request: t.Mapping[str, t.Any]) -> DragonRunResponse:
         run_request = DragonRunRequest.parse_obj(request)
 
         proc = TemplateProcess(
@@ -109,7 +109,7 @@ class DragonBackend:
         return DragonRunResponse(step_id=step_id)
 
     def update_status(
-        self, request: DragonUpdateStatusRequest
+        self, request: t.Mapping[str, t.Any]
     ) -> DragonUpdateStatusResponse:
         update_status_request = DragonUpdateStatusRequest.parse_obj(request)
 
@@ -139,7 +139,7 @@ class DragonBackend:
 
         return DragonUpdateStatusResponse(statuses=updated_statuses)
 
-    def stop(self, request: DragonStopRequest) -> DragonStopResponse:
+    def stop(self, request: t.Mapping[str, t.Any]) -> DragonStopResponse:
         stop_request = DragonStopRequest.parse_obj(request)
 
         if stop_request.step_id in self._proc_groups:
@@ -152,7 +152,7 @@ class DragonBackend:
         return DragonStopResponse()
 
     @staticmethod
-    def handshake(request: DragonHandshakeRequest) -> DragonHandshakeResponse:
+    def handshake(request: t.Mapping[str, t.Any]) -> DragonHandshakeResponse:
         DragonHandshakeRequest.parse_obj(request)
 
         return DragonHandshakeResponse()

@@ -143,7 +143,7 @@ def proxyable_launch_cmd(
             status_dir = self.meta["status_dir"]
             run_req = DragonRunRequest.parse_obj(json.loads(original_cmd_list[-1]))
 
-            exe_args = run_req.exe_args or []
+            exe_args = run_req.exe_args
             encoded_cmd = encode_cmd([run_req.exe] + exe_args)
 
             # NOTE: this is NOT safe. should either 1) sign cmd and verify OR 2)
