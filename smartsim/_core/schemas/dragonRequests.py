@@ -24,28 +24,35 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# mypy: disable-error-code="valid-type"
 import typing as t
+import abc
 
-from pydantic import BaseModel, PositiveInt, constr
+from pydantic import BaseModel, PositiveInt
+
+from smartsim._core.schemas.types import NonEmptyStr
 
 
-class DragonRequest(BaseModel):
-    request_type: constr(min_length=1)
+class DragonRequest(BaseModel, abc.ABC):
+    @staticmethod
+    @abc.abstractmethod
+    def type() -> str: ...
 
 
 class DragonRunRequestView(DragonRequest):
-    request_type: constr(min_length=1) = "run"
-    exe: constr(min_length=1)
-    exe_args: t.Optional[t.List[constr(min_length=1)]] = []
-    path: constr(min_length=1)
+    exe: NonEmptyStr
+    exe_args: t.List[NonEmptyStr] = []
+    path: NonEmptyStr
     nodes: PositiveInt = 1
     tasks: PositiveInt = 1
-    output_file: t.Optional[constr(min_length=1)] = None
-    error_file: t.Optional[constr(min_length=1)] = None
+    output_file: t.Optional[NonEmptyStr] = None
+    error_file: t.Optional[NonEmptyStr] = None
     env: t.Dict[str, t.Optional[str]] = {}
-    name: t.Optional[constr(min_length=1)]
-    pmi_enabled: t.Optional[bool] = True
+    name: t.Optional[NonEmptyStr]
+    pmi_enabled: bool = True
+
+    @staticmethod
+    def type() -> str:
+        return "run"
 
 
 class DragonRunRequest(DragonRunRequestView):
@@ -56,19 +63,30 @@ class DragonRunRequest(DragonRunRequestView):
 
 
 class DragonUpdateStatusRequest(DragonRequest):
-    request_type: constr(min_length=1) = "update_status"
-    step_ids: t.List[constr(min_length=1)]
+    step_ids: t.List[NonEmptyStr]
+
+    @staticmethod
+    def type() -> str:
+        return "update_status"
 
 
 class DragonStopRequest(DragonRequest):
-    request_type: constr(min_length=1) = "stop"
-    step_id: constr(min_length=1)
+    step_id: NonEmptyStr
+
+    @staticmethod
+    def type() -> str:
+        return "stop"
 
 
 class DragonHandshakeRequest(DragonRequest):
-    request_type: constr(min_length=1) = "handshake"
+    @staticmethod
+    def type() -> str:
+        return "handshake"
 
 
 class DragonBootstrapRequest(DragonRequest):
-    request_type: constr(min_length=1) = "bootstrap"
-    address: constr(min_length=1)
+    address: NonEmptyStr
+
+    @staticmethod
+    def type() -> str:
+        return "bootstrap"

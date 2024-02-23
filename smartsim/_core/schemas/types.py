@@ -24,51 +24,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import typing as t
-
-from pydantic import BaseModel
-import abc
-
-from smartsim._core.schemas.types import NonEmptyStr
-
-class DragonResponse(BaseModel):
-    error_message: t.Optional[str] = None
-
-    @staticmethod
-    @abc.abstractmethod
-    def type() -> str: ...
+import pydantic
 
 
-class DragonRunResponse(DragonResponse):
-    step_id: NonEmptyStr
-
-    @staticmethod
-    def type() -> str:
-        return "run"
-
-
-class DragonUpdateStatusResponse(DragonResponse):
-    # status is a dict: {step_id: (is_alive, returncode)}
-    statuses: t.Mapping[NonEmptyStr, t.Tuple[NonEmptyStr, t.Optional[t.List[int]]]] = {}
-
-    @staticmethod
-    def type() -> str:
-        return "status_update"
-
-
-class DragonStopResponse(DragonResponse):
-    @staticmethod
-    def type() -> str:
-        return "stop"
-
-
-class DragonHandshakeResponse(DragonResponse):
-    @staticmethod
-    def type() -> str:
-        return "handshake"
-
-
-class DragonBootstrapResponse(DragonResponse):
-    @staticmethod
-    def type() -> str:
-        return "bootstrap"
+class NonEmptyStr(pydantic.ConstrainedStr):
+    min_length = 1
