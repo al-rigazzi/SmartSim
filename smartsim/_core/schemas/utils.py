@@ -44,7 +44,7 @@ class SchemaSerializer(t.Generic[_KeyT, _SchemaT]):
         try:
             type_ = obj[self._type_name_key]
         except KeyError:
-            raise ValueError(f"Could not parse type of object: {obj}") from None
+            raise ValueError(f"Could not parse object: {obj}") from None
         try:
             cls = self._map[type_]
         except KeyError:

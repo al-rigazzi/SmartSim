@@ -35,6 +35,7 @@ from types import FrameType
 import zmq
 from pydantic import ValidationError
 
+import smartsim._core.utils.helpers as _helpers
 from smartsim._core.launcher.dragon.dragonBackend import DragonBackend
 from smartsim._core.schemas import DragonBootstrapRequest, DragonBootstrapResponse
 from smartsim._core.schemas.dragonRequests import request_serializer
@@ -112,13 +113,18 @@ def main(args: argparse.Namespace) -> int:
 
         launcher_socket = context.socket(zmq.REQ)
         launcher_socket.connect(args.launching_address)
-        request = DragonBootstrapRequest(address=dragon_head_address)
-        launcher_socket.send_json(request_serializer.serialize_to_json(request))
-        message = t.cast(str, launcher_socket.recv_json())
 
-        if not isinstance(
-            response_serializer.deserialize_from_json(message), DragonBootstrapResponse
-        ):
+        response = (
+            _helpers.Pipeline(DragonBootstrapRequest(address=dragon_head_address))
+            .pipe(request_serializer.serialize_to_json)
+            .pipe(launcher_socket.send_json)
+            .pipe(lambda _: launcher_socket.recv_json())
+            .pipe(str)
+            .pipe(response_serializer.deserialize_from_json)
+            .result()
+        )
+
+        if not isinstance(response, DragonBootstrapResponse):
             raise ValueError(
                 "Could not receive connection confirmation from launcher. Aborting."
             )

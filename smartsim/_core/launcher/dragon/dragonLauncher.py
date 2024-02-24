@@ -38,6 +38,7 @@ from threading import RLock
 
 import zmq
 
+import smartsim._core.utils.helpers as _helpers
 from smartsim._core.schemas.dragonRequests import request_serializer
 from smartsim._core.schemas.dragonResponses import response_serializer
 
@@ -100,15 +101,13 @@ class DragonLauncher(WLMLauncher):
     def _handsake(self, address: str) -> None:
         self._dragon_head_socket = self._context.socket(zmq.REQ)
         self._dragon_head_socket.connect(address)
-        request = DragonHandshakeRequest()
         try:
-            response = _assert_schema_type(
-                DragonHandshakeResponse, self._send_request_as_json(request)
-            )
+            _helpers.Pipeline(DragonHandshakeRequest()).pipe(
+                self._send_request_as_json
+            ).pipe(_assert_schema_type(DragonHandshakeResponse))
             logger.debug(
                 f"Successful handshake with Dragon server at address {address}"
             )
-            return
         except (zmq.ZMQError, zmq.Again) as e:
             logger.debug(e)
             self._dragon_head_socket.close()
@@ -193,14 +192,21 @@ class DragonLauncher(WLMLauncher):
 
             if address is not None:
                 logger.debug(f"Listening to {socket_addr}")
-                dragon_address_request = request_serializer.deserialize_from_json(
-                    str(launcher_socket.recv_json())
+                request = (
+                    _helpers.Pipeline(launcher_socket.recv_json())
+                    .pipe(str)
+                    .pipe(request_serializer.deserialize_from_json)
+                    .pipe(_assert_schema_type(DragonBootstrapRequest))
+                    .result()
                 )
-                dragon_head_address = dragon_address_request.address
+
+                dragon_head_address = request.address
                 logger.debug(f"Connecting launcher to {dragon_head_address}")
-                launcher_socket.send_json(
-                    response_serializer.serialize_to_json(DragonBootstrapResponse())
-                )
+
+                _helpers.Pipeline(DragonBootstrapResponse()).pipe(
+                    response_serializer.serialize_to_json
+                ).pipe(launcher_socket.send_json)
+
                 launcher_socket.close()
                 self._set_timeout(self._timeout)
                 self._handsake(dragon_head_address)
@@ -246,9 +252,13 @@ class DragonLauncher(WLMLauncher):
                 exe=cmd[0], exe_args=cmd[1:], path=step.cwd, name=step.entity_name
             )
 
-        response = _assert_schema_type(
-            DragonRunResponse, self._send_request_as_json(req)
+        response = (
+            _helpers.Pipeline(req)
+            .pipe(self._send_request_as_json)
+            .pipe(_assert_schema_type(DragonRunResponse))
+            .result()
         )
+
         step_id = str(response.step_id)
         task_id = step_id
 
@@ -269,12 +279,10 @@ class DragonLauncher(WLMLauncher):
             raise LauncherError("Launcher is not connected to Dragon.")
 
         stepmap = self.step_mapping[step_name]
-
         step_id = str(stepmap.step_id)
-        request = DragonStopRequest(step_id=step_id)
-        response = _assert_schema_type(
-            DragonStopResponse, self._send_request_as_json(request)
-        )
+        _helpers.Pipeline(DragonStopRequest(step_id=step_id)).pipe(
+            self._send_request_as_json
+        ).pipe(_assert_schema_type(DragonStopResponse))
 
         _, step_info = self.get_step_update([step_name])[0]
         if not step_info:
@@ -295,9 +303,11 @@ class DragonLauncher(WLMLauncher):
         if not self.is_connected:
             raise LauncherError("Launcher is not connected to Dragon.")
 
-        request = DragonUpdateStatusRequest(step_ids=step_ids)
-        response = _assert_schema_type(
-            DragonUpdateStatusResponse, self._send_request_as_json(request)
+        response = (
+            _helpers.Pipeline(DragonUpdateStatusRequest(step_ids=step_ids))
+            .pipe(self._send_request_as_json)
+            .pipe(_assert_schema_type(DragonUpdateStatusResponse))
+            .result()
         )
 
         # create SlurmStepInfo objects to return
@@ -328,15 +338,20 @@ class DragonLauncher(WLMLauncher):
     def _send_request_as_json(
         self, request: DragonRequest, flags: int = 0
     ) -> DragonResponse:
-        if self._dragon_head_socket is None:
+        if (socket := self._dragon_head_socket) is None:
             raise LauncherError("Launcher is not connected to Dragon")
 
         with self._comm_lock:
-            req_json = request_serializer.serialize_to_json(request)
             logger.debug(f"Sending request: {request}")
-            self._dragon_head_socket.send_json(req_json, flags)
-            response = str(self._dragon_head_socket.recv_json())
-            return response_serializer.deserialize_from_json(response)
+            return (
+                _helpers.Pipeline(request)
+                .pipe(request_serializer.serialize_to_json)
+                .pipe(lambda req: socket.send_json(req, flags))
+                .pipe(lambda _: socket.recv_json())
+                .pipe(str)
+                .pipe(response_serializer.deserialize_from_json)
+                .result()
+            )
 
     def __str__(self) -> str:
         return "Dragon"
@@ -373,7 +388,10 @@ class DragonLauncher(WLMLauncher):
             return dragon_envs
 
 
-def _assert_schema_type(typ: t.Type[_SchemaT], obj: object, /) -> _SchemaT:
-    if not isinstance(obj, typ):
-        raise TypeError("Expected schema of type `{typ}`, but got {type(obj)}")
-    return obj
+def _assert_schema_type(typ: t.Type[_SchemaT], /) -> t.Callable[[object], _SchemaT]:
+    def _inner(obj: object) -> _SchemaT:
+        if not isinstance(obj, typ):
+            raise TypeError("Expected schema of type `{typ}`, but got {type(obj)}")
+        return obj
+
+    return _inner

@@ -31,12 +31,16 @@ import base64
 import os
 import typing as t
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from shutil import which
 
 from smartsim._core._install.builder import TRedisAIBackendStr as _TRedisAIBackendStr
+
+_T = t.TypeVar("_T")
+_U = t.TypeVar("_U")
 
 
 def unpack_db_identifier(db_id: str, token: str) -> t.Tuple[str, str]:
@@ -302,3 +306,39 @@ def decode_cmd(encoded_cmd: str) -> t.List[str]:
     cleaned_cmd = decoded_cmd.decode("ascii").split("|")
 
     return cleaned_cmd
+
+
+@t.final
+@dataclass(frozen=True)
+class Pipeline(t.Generic[_T]):
+    """Utility class to turn
+
+    ..highlight:: python
+    ..code-block:: python
+
+        result = calls(function(nested(deeply(very(some(data))))))
+
+    into
+
+    ..highlight:: python
+    ..code-block:: python
+
+        result = (Pipeline(data)
+                  .pipe(some)
+                  .pipe(very)
+                  .pipe(deeply)
+                  .pipe(nested)
+                  .pipe(function)
+                  .pipe(calls)
+                  .result())
+
+    without the need to introduce confusing temporary variable names
+    """
+
+    _val: _T
+
+    def pipe(self, fn: t.Callable[[_T], _U], /) -> "Pipeline[_U]":
+        return Pipeline(fn(self._val))
+
+    def result(self) -> _T:
+        return self._val
