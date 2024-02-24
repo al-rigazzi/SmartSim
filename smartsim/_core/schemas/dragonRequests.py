@@ -31,6 +31,9 @@ from pydantic import BaseModel, PositiveInt
 import smartsim._core.schemas.utils as _utils
 from smartsim._core.schemas.types import NonEmptyStr
 
+# Black and Pylint disagree about where to put the `...`
+# pylint: disable=multiple-statements
+
 
 class DragonRequest(BaseModel): ...
 

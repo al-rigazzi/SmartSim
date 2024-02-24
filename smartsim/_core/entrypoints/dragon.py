@@ -33,7 +33,6 @@ import typing as t
 from types import FrameType
 
 import zmq
-from pydantic import ValidationError
 
 import smartsim._core.utils.helpers as _helpers
 from smartsim._core.launcher.dragon.dragonBackend import DragonBackend

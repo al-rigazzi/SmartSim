@@ -36,6 +36,7 @@ from os import makedirs
 
 from smartsim._core.config import CONFIG
 from smartsim._core.schemas import DragonRunRequest
+from smartsim._core.schemas.types import NonEmptyStr
 from smartsim.error.errors import SmartSimError, UnproxyableStepError
 
 from ....log import get_logger
@@ -149,23 +150,31 @@ def proxyable_launch_cmd(
             # NOTE: this is NOT safe. should either 1) sign cmd and verify OR 2)
             #       serialize step and let the indirect entrypoint rebuild the
             #       cmd... for now, test away...
-            new_cmd = [
-                sys.executable,
-                "-m",
-                proxy_module,
-                "+name",
-                self.name,
-                "+command",
-                encoded_cmd,
-                "+entity_type",
-                etype,
-                "+telemetry_dir",
-                status_dir,
-                "+working_dir",
-                self.cwd,
-            ]
-            run_req.exe = new_cmd[0]
-            run_req.exe_args = new_cmd[1:]
+            # NOTE: This mapping DOES NOT VALIDATE THE STRINGS and we are lying!
+            #       to the type checker. We should try to remove this dragon specific
+            #       branch for more type safety.
+            new_cmd = list(
+                map(
+                    NonEmptyStr,
+                    (
+                        sys.executable,
+                        "-m",
+                        proxy_module,
+                        "+name",
+                        self.name,
+                        "+command",
+                        encoded_cmd,
+                        "+entity_type",
+                        etype,
+                        "+telemetry_dir",
+                        status_dir,
+                        "+working_dir",
+                        self.cwd,
+                    ),
+                )
+            )
+            run_req.exe = NonEmptyStr(new_cmd[0])
+            run_req.exe_args = [NonEmptyStr(s) for s in new_cmd[1:]]
 
             return [run_req.json()]
 

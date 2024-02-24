@@ -41,6 +41,7 @@ import zmq
 import smartsim._core.utils.helpers as _helpers
 from smartsim._core.schemas.dragonRequests import request_serializer
 from smartsim._core.schemas.dragonResponses import response_serializer
+from smartsim._core.schemas.types import NonEmptyStr
 
 from ....error import LauncherError
 from ....log import get_logger
@@ -321,7 +322,7 @@ class DragonLauncher(WLMLauncher):
                     msg += response.error_message
                 raise LauncherError(msg)
 
-            stat_tuple = response.statuses[step_id]
+            stat_tuple = response.statuses[NonEmptyStr(step_id)]
             ret_codes = stat_tuple[1]
             if ret_codes:
                 grp_ret_code = min(ret_codes)
