@@ -72,7 +72,7 @@ class DragonBackend:
             return str(self._step_id)
 
     @functools.singledispatchmethod
-    # Deliberately suppressing errors so that overload have same signature
+    # Deliberately suppressing errors so that overloads have the same signature
     # pylint: disable-next=no-self-use
     def process_request(self, request: DragonRequest) -> DragonResponse:
         raise TypeError("Unsure how to process a `{type(request)}` request")
@@ -137,7 +137,7 @@ class DragonBackend:
         return DragonStopResponse()
 
     @process_request.register
-    # Deliberately suppressing errors so that overload have same signature
+    # Deliberately suppressing errors so that overloads have the same signature
     # pylint: disable-next=no-self-use,unused-argument
     def _(self, request: DragonHandshakeRequest) -> DragonHandshakeResponse:
         return DragonHandshakeResponse()

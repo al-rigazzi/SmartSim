@@ -150,9 +150,9 @@ def proxyable_launch_cmd(
             # NOTE: this is NOT safe. should either 1) sign cmd and verify OR 2)
             #       serialize step and let the indirect entrypoint rebuild the
             #       cmd... for now, test away...
-            # NOTE: This mapping DOES NOT VALIDATE THE STRINGS and we are lying!
-            #       to the type checker. We should try to remove this dragon specific
-            #       branch for more type safety.
+            # NOTE: This mapping DOES NOT VALIDATE THE STRINGS and we are lying
+            #       to pydantic and the type checker! We should try to remove this
+            #       dragon specific branch for more type safety.
             new_cmd = list(
                 map(
                     NonEmptyStr,
@@ -173,8 +173,8 @@ def proxyable_launch_cmd(
                     ),
                 )
             )
-            run_req.exe = NonEmptyStr(new_cmd[0])
-            run_req.exe_args = [NonEmptyStr(s) for s in new_cmd[1:]]
+            run_req.exe = new_cmd[0]
+            run_req.exe_args = new_cmd[1:]
 
             return [run_req.json()]
 
