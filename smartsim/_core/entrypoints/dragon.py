@@ -114,13 +114,13 @@ def main(args: argparse.Namespace) -> int:
         launcher_socket.connect(args.launching_address)
 
         response = (
-            _helpers.Pipeline(DragonBootstrapRequest(address=dragon_head_address))
-            .pipe(request_serializer.serialize_to_json)
-            .pipe(launcher_socket.send_json)
-            .pipe(lambda _: launcher_socket.recv_json())
-            .pipe(str)
-            .pipe(response_serializer.deserialize_from_json)
-            .result()
+            _helpers.start_with(DragonBootstrapRequest(address=dragon_head_address))
+            .then(request_serializer.serialize_to_json)
+            .then(launcher_socket.send_json)
+            .then(lambda _: launcher_socket.recv_json())
+            .then(str)
+            .then(response_serializer.deserialize_from_json)
+            .get_result()
         )
 
         if not isinstance(response, DragonBootstrapResponse):

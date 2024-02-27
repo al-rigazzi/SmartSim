@@ -310,7 +310,7 @@ def decode_cmd(encoded_cmd: str) -> t.List[str]:
 
 @t.final
 @dataclass(frozen=True)
-class Pipeline(t.Generic[_T]):
+class _Pipeline(t.Generic[_T]):
     """Utility class to turn
 
     ..highlight:: python
@@ -323,22 +323,26 @@ class Pipeline(t.Generic[_T]):
     ..highlight:: python
     ..code-block:: python
 
-        result = (Pipeline(data)
-                  .pipe(some)
-                  .pipe(very)
-                  .pipe(deeply)
-                  .pipe(nested)
-                  .pipe(function)
-                  .pipe(calls)
-                  .result())
+        result = (_Pipeline(data)
+                  .then(some)
+                  .then(very)
+                  .then(deeply)
+                  .then(nested)
+                  .then(function)
+                  .then(calls)
+                  .get_result())
 
     without the need to introduce confusing temporary variable names
     """
 
     _val: _T
 
-    def pipe(self, fn: t.Callable[[_T], _U], /) -> "Pipeline[_U]":
-        return Pipeline(fn(self._val))
+    def then(self, fn: t.Callable[[_T], _U], /) -> "_Pipeline[_U]":
+        return _Pipeline(fn(self._val))
 
-    def result(self) -> _T:
+    def get_result(self) -> _T:
         return self._val
+
+
+def start_with(obj: _T) -> _Pipeline[_T]:
+    return _Pipeline(obj)

@@ -103,9 +103,11 @@ class DragonLauncher(WLMLauncher):
         self._dragon_head_socket = self._context.socket(zmq.REQ)
         self._dragon_head_socket.connect(address)
         try:
-            _helpers.Pipeline(DragonHandshakeRequest()).pipe(
-                self._send_request_as_json
-            ).pipe(_assert_schema_type(DragonHandshakeResponse))
+            (
+                _helpers.start_with(DragonHandshakeRequest())
+                .then(self._send_request_as_json)
+                .then(_assert_schema_type(DragonHandshakeResponse))
+            )
             logger.debug(
                 f"Successful handshake with Dragon server at address {address}"
             )
@@ -194,19 +196,21 @@ class DragonLauncher(WLMLauncher):
             if address is not None:
                 logger.debug(f"Listening to {socket_addr}")
                 request = (
-                    _helpers.Pipeline(launcher_socket.recv_json())
-                    .pipe(str)
-                    .pipe(request_serializer.deserialize_from_json)
-                    .pipe(_assert_schema_type(DragonBootstrapRequest))
-                    .result()
+                    _helpers.start_with(launcher_socket.recv_json())
+                    .then(str)
+                    .then(request_serializer.deserialize_from_json)
+                    .then(_assert_schema_type(DragonBootstrapRequest))
+                    .get_result()
                 )
 
                 dragon_head_address = request.address
                 logger.debug(f"Connecting launcher to {dragon_head_address}")
 
-                _helpers.Pipeline(DragonBootstrapResponse()).pipe(
-                    response_serializer.serialize_to_json
-                ).pipe(launcher_socket.send_json)
+                (
+                    _helpers.start_with(DragonBootstrapResponse())
+                    .then(response_serializer.serialize_to_json)
+                    .then(launcher_socket.send_json)
+                )
 
                 launcher_socket.close()
                 self._set_timeout(self._timeout)
@@ -254,10 +258,10 @@ class DragonLauncher(WLMLauncher):
             )
 
         response = (
-            _helpers.Pipeline(req)
-            .pipe(self._send_request_as_json)
-            .pipe(_assert_schema_type(DragonRunResponse))
-            .result()
+            _helpers.start_with(req)
+            .then(self._send_request_as_json)
+            .then(_assert_schema_type(DragonRunResponse))
+            .get_result()
         )
 
         step_id = str(response.step_id)
@@ -281,9 +285,11 @@ class DragonLauncher(WLMLauncher):
 
         stepmap = self.step_mapping[step_name]
         step_id = str(stepmap.step_id)
-        _helpers.Pipeline(DragonStopRequest(step_id=step_id)).pipe(
-            self._send_request_as_json
-        ).pipe(_assert_schema_type(DragonStopResponse))
+        (
+            _helpers.start_with(DragonStopRequest(step_id=step_id))
+            .then(self._send_request_as_json)
+            .then(_assert_schema_type(DragonStopResponse))
+        )
 
         _, step_info = self.get_step_update([step_name])[0]
         if not step_info:
@@ -305,10 +311,10 @@ class DragonLauncher(WLMLauncher):
             raise LauncherError("Launcher is not connected to Dragon.")
 
         response = (
-            _helpers.Pipeline(DragonUpdateStatusRequest(step_ids=step_ids))
-            .pipe(self._send_request_as_json)
-            .pipe(_assert_schema_type(DragonUpdateStatusResponse))
-            .result()
+            _helpers.start_with(DragonUpdateStatusRequest(step_ids=step_ids))
+            .then(self._send_request_as_json)
+            .then(_assert_schema_type(DragonUpdateStatusResponse))
+            .get_result()
         )
 
         # create SlurmStepInfo objects to return
@@ -345,13 +351,13 @@ class DragonLauncher(WLMLauncher):
         with self._comm_lock:
             logger.debug(f"Sending request: {request}")
             return (
-                _helpers.Pipeline(request)
-                .pipe(request_serializer.serialize_to_json)
-                .pipe(lambda req: socket.send_json(req, flags))
-                .pipe(lambda _: socket.recv_json())
-                .pipe(str)
-                .pipe(response_serializer.deserialize_from_json)
-                .result()
+                _helpers.start_with(request)
+                .then(request_serializer.serialize_to_json)
+                .then(lambda req: socket.send_json(req, flags))
+                .then(lambda _: socket.recv_json())
+                .then(str)
+                .then(response_serializer.deserialize_from_json)
+                .get_result()
             )
 
     def __str__(self) -> str:
