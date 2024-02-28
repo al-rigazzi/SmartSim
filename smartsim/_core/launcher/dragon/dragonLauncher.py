@@ -225,8 +225,9 @@ class DragonLauncher(WLMLauncher):
 
                 def cleanup() -> None:
                     try:
-                        shutdown_req = DragonShutdownRequest()
-                        self._send_request_as_json(shutdown_req)
+                        with self._comm_lock:
+                            shutdown_req = DragonShutdownRequest()
+                            self._send_request_as_json(shutdown_req)
                     except zmq.error.ZMQError as e:
                         logger.error(
                             "Could not send shutdown request to dragon server,"
@@ -371,7 +372,7 @@ class DragonLauncher(WLMLauncher):
             raise LauncherError("Launcher is not connected to Dragon")
 
         with self._comm_lock:
-            logger.debug(f"Sending request: {request}")
+            logger.debug(f"Sending request: {request_serializer.serialize_to_json(request)}")
             return (
                 _helpers.start_with(request)
                 .then(request_serializer.serialize_to_json)
