@@ -27,6 +27,7 @@
 import argparse
 import json
 import os
+import socket
 import signal
 import textwrap
 import typing as t
@@ -37,6 +38,7 @@ from pydantic import ValidationError
 
 from smartsim._core.launcher.dragon.dragonBackend import DragonBackend
 from smartsim._core.schemas import DragonBootstrapRequest, DragonBootstrapResponse
+from smartsim._core.schemas.dragonResponses import DragonShutdownResponse
 from smartsim._core.utils.network import get_best_interface_and_address
 
 # kill is not catchable
@@ -54,7 +56,7 @@ def handle_signal(signo: int, _frame: t.Optional[FrameType]) -> None:
 context = zmq.Context()
 
 """
-Redis/KeyDB entrypoint script
+Dragon server entrypoint script
 """
 
 DBPID: t.Optional[int] = None
@@ -69,6 +71,7 @@ def print_summary(network_interface: str, ip_address: str) -> None:
                 -------- Dragon Configuration --------
                 IPADDRESS: {ip_address}
                 NETWORK: {network_interface}
+                HOSTNAME: {socket.gethostname()}
                 DRAGON_SERVER_CONFIG: {json.dumps(zmq_config)}
                 --------------------------------------
 
@@ -124,12 +127,15 @@ def main(args: argparse.Namespace) -> int:
 
     run(dragon_head_address=dragon_head_address)
 
+
+    print("Shutting down! Bye bye!")
     return 0
 
 
 def cleanup() -> None:
     print("Cleaning up", flush=True)
-
+    # os.kill(os.getpid(), signal.SIGINT)
+    # sys.exit(0)
 
 if __name__ == "__main__":
     os.environ["PYTHONUNBUFFERED"] = "1"
@@ -148,7 +154,7 @@ if __name__ == "__main__":
     )
     args_ = parser.parse_args()
 
-    print(args_)
+
 
     # make sure to register the cleanup before the start
     # the process so our signaller will be able to stop

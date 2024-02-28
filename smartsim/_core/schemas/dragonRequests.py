@@ -72,3 +72,7 @@ class DragonHandshakeRequest(DragonRequest):
 class DragonBootstrapRequest(DragonRequest):
     request_type: constr(min_length=1) = "bootstrap"
     address: constr(min_length=1)
+
+class DragonShutdownRequest(DragonRequest):
+    request_type: constr(min_length=1) = "shutdown"
+    

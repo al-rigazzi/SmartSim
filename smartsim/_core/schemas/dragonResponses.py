@@ -59,3 +59,6 @@ class DragonHandshakeResponse(DragonResponse):
 
 class DragonBootstrapResponse(DragonResponse):
     response_type: constr(min_length=1) = "bootstrap"
+
+class DragonShutdownResponse(DragonResponse):
+    response_type: constr(min_length=1) = "shutdown"
