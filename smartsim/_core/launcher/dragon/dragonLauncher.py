@@ -74,8 +74,6 @@ logger = get_logger(__name__)
 
 _SchemaT = t.TypeVar("_SchemaT", bound=t.Union[DragonRequest, DragonResponse])
 
-_SchemaT = t.TypeVar("_SchemaT", bound=t.Union[DragonRequest, DragonResponse])
-
 DRG_LOCK = RLock()
 DRG_CTX = zmq.Context()
 
