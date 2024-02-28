@@ -82,4 +82,4 @@ class DragonBootstrapRequest(DragonRequest):
 
 
 @request_serializer.register("shutdown")
-class DragonShutdownRequest(DragonRequest):
+class DragonShutdownRequest(DragonRequest): ...
