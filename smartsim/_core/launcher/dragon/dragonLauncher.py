@@ -372,7 +372,9 @@ class DragonLauncher(WLMLauncher):
             raise LauncherError("Launcher is not connected to Dragon")
 
         with self._comm_lock:
-            logger.debug(f"Sending request: {request_serializer.serialize_to_json(request)}")
+            logger.debug(
+                f"Sending request: {request_serializer.serialize_to_json(request)}"
+            )
             return (
                 _helpers.start_with(request)
                 .then(request_serializer.serialize_to_json)
