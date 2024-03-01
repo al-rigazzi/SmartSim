@@ -98,8 +98,7 @@ class DragonLauncher(WLMLauncher):
         self._context.setsockopt(zmq.SNDTIMEO, value=self._timeout)
         self._context.setsockopt(zmq.RCVTIMEO, value=self._timeout)
         self._dragon_head_socket: t.Optional[zmq.Socket[t.Any]] = None
-        self._dragon_head_process: t.Optional[subprocess.Popen[bytes]]
-        self._comm_lock = DRG_LOCK
+        self._dragon_head_process: t.Optional[subprocess.Popen[bytes]] = None
 
     @property
     def is_connected(self) -> bool:
@@ -111,7 +110,7 @@ class DragonLauncher(WLMLauncher):
         try:
             (
                 _helpers.start_with(DragonHandshakeRequest())
-                .then(self._send_request_as_json)
+                .then(self._send_request)
                 .then(_assert_schema_type(DragonHandshakeResponse))
             )
             logger.debug(
@@ -131,7 +130,7 @@ class DragonLauncher(WLMLauncher):
 
     # pylint: disable-next=too-many-statements
     def connect_to_dragon(self, path: str) -> None:
-        with self._comm_lock:
+        with DRG_LOCK:
             # TODO use manager instead
             if self.is_connected:
                 return
@@ -223,21 +222,20 @@ class DragonLauncher(WLMLauncher):
                 self._set_timeout(self._timeout)
                 self._handshake(dragon_head_address)
 
-                def cleanup() -> None:
-                    try:
-                        with self._comm_lock:
-                            shutdown_req = DragonShutdownRequest()
-                            self._send_request_as_json(shutdown_req)
-                    except zmq.error.ZMQError as e:
-                        logger.error(
-                            "Could not send shutdown request to dragon server,"
-                            f" ZMQ error: {e}"
-                        )
-                    finally:
-                        if self._dragon_head_process is not None:
-                            os.kill(self._dragon_head_process.pid, signal.SIGINT)
+                # Only the launcher which started the server is
+                # responsible of it, that's why we register the
+                # cleanup in this code branch.
+                # The cleanup function should not have references
+                # to this object to avoid Garbage Collector lockup
+                server_socket = self._dragon_head_socket
+                server_process_pid = self._dragon_head_process.pid
 
-                atexit.register(cleanup)
+                if server_socket is not None and server_process_pid:
+                    atexit.register(
+                        dragon_cleanup,
+                        server_socket=server_socket,
+                        server_process_pid=server_process_pid,
+                    )
             else:
                 # TODO parse output file
                 raise LauncherError("Could not receive address of Dragon head process")
@@ -282,7 +280,7 @@ class DragonLauncher(WLMLauncher):
 
         response = (
             _helpers.start_with(req)
-            .then(self._send_request_as_json)
+            .then(self._send_request)
             .then(_assert_schema_type(DragonRunResponse))
             .get_result()
         )
@@ -310,7 +308,7 @@ class DragonLauncher(WLMLauncher):
         step_id = str(stepmap.step_id)
         (
             _helpers.start_with(DragonStopRequest(step_id=step_id))
-            .then(self._send_request_as_json)
+            .then(self._send_request)
             .then(_assert_schema_type(DragonStopResponse))
         )
 
@@ -335,12 +333,12 @@ class DragonLauncher(WLMLauncher):
 
         response = (
             _helpers.start_with(DragonUpdateStatusRequest(step_ids=step_ids))
-            .then(self._send_request_as_json)
+            .then(self._send_request)
             .then(_assert_schema_type(DragonUpdateStatusResponse))
             .get_result()
         )
 
-        # create SlurmStepInfo objects to return
+        # create StepInfo objects to return
         updates: t.List[StepInfo] = []
         # Order matters as we return an ordered list of StepInfo objects
         for step_id in step_ids:
@@ -365,25 +363,11 @@ class DragonLauncher(WLMLauncher):
             updates.append(info)
         return updates
 
-    def _send_request_as_json(
-        self, request: DragonRequest, flags: int = 0
-    ) -> DragonResponse:
+    def _send_request(self, request: DragonRequest, flags: int = 0) -> DragonResponse:
         if (socket := self._dragon_head_socket) is None:
             raise LauncherError("Launcher is not connected to Dragon")
 
-        with self._comm_lock:
-            logger.debug(
-                f"Sending request: {request_serializer.serialize_to_json(request)}"
-            )
-            return (
-                _helpers.start_with(request)
-                .then(request_serializer.serialize_to_json)
-                .then(lambda req: socket.send_json(req, flags))
-                .then(lambda _: socket.recv_json())
-                .then(str)
-                .then(response_serializer.deserialize_from_json)
-                .get_result()
-            )
+        return DragonLauncher.send_req_as_json(socket, request, flags)
 
     def __str__(self) -> str:
         return "Dragon"
@@ -419,6 +403,22 @@ class DragonLauncher(WLMLauncher):
 
             return dragon_envs
 
+    @staticmethod
+    def send_req_as_json(
+        socket: zmq.Socket[t.Any], request: DragonRequest, flags: int = 0
+    ) -> DragonResponse:
+        with DRG_LOCK:
+            logger.debug(f"Sending {type(request).__name__}: {request}")
+            return (
+                _helpers.start_with(request)
+                .then(request_serializer.serialize_to_json)
+                .then(lambda req: socket.send_json(req, flags))
+                .then(lambda _: socket.recv_json())
+                .then(str)
+                .then(response_serializer.deserialize_from_json)
+                .get_result()
+            )
+
 
 def _assert_schema_type(typ: t.Type[_SchemaT], /) -> t.Callable[[object], _SchemaT]:
     def _inner(obj: object) -> _SchemaT:
@@ -427,3 +427,15 @@ def _assert_schema_type(typ: t.Type[_SchemaT], /) -> t.Callable[[object], _Schem
         return obj
 
     return _inner
+
+
+def dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -> None:
+    try:
+        with DRG_LOCK:
+            DragonLauncher.send_req_as_json(server_socket, DragonShutdownRequest())
+    except zmq.error.ZMQError as e:
+        logger.error(
+            "Could not send shutdown request to dragon server," f" ZMQ error: {e}"
+        )
+    finally:
+        os.kill(server_process_pid, signal.SIGINT)

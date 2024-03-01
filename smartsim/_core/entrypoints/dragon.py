@@ -49,6 +49,8 @@ from smartsim._core.utils.network import get_best_interface_and_address
 # kill is not catchable
 SIGNALS = [signal.SIGINT, signal.SIGQUIT, signal.SIGTERM, signal.SIGABRT]
 
+SHUTDOWN_INITIATED = False
+
 
 def handle_signal(signo: int, _frame: t.Optional[FrameType]) -> None:
     if not signo:
@@ -87,13 +89,13 @@ def print_summary(network_interface: str, ip_address: str) -> None:
 
 
 def run(dragon_head_address: str) -> None:
+    global SHUTDOWN_INITIATED  # pylint: disable=global-statement
     print(f"Opening socket {dragon_head_address}")
     dragon_head_socket = context.socket(zmq.REP)
     dragon_head_socket.bind(dragon_head_address)
-
     dragon_backend = DragonBackend()
 
-    while True:
+    while not SHUTDOWN_INITIATED:
         print(f"Listening to {dragon_head_address}")
         req = dragon_head_socket.recv_json()
         print(f"Received request: {req}")
@@ -102,7 +104,7 @@ def run(dragon_head_address: str) -> None:
         print(f"Sending response {resp}", flush=True)
         dragon_head_socket.send_json(response_serializer.serialize_to_json(resp))
         if isinstance(resp, DragonShutdownResponse):
-            break
+            SHUTDOWN_INITIATED = True
 
 
 def main(args: argparse.Namespace) -> int:
@@ -145,9 +147,9 @@ def main(args: argparse.Namespace) -> int:
 
 
 def cleanup() -> None:
+    global SHUTDOWN_INITIATED  # pylint: disable=global-statement
     print("Cleaning up", flush=True)
-    # os.kill(os.getpid(), signal.SIGINT)
-    # sys.exit(0)
+    SHUTDOWN_INITIATED = True
 
 
 if __name__ == "__main__":
