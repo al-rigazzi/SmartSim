@@ -94,22 +94,7 @@ class DragonBackend:
             # stderr=Popen.PIPE,
         )
 
-        # WORK IN PROGRESS, needs new policy groups
-        # global_policy = Policy(placement=Policy.Placement.HOST_NAME,
-        #                        host_name=Node(node_list[request.nodes]).hostname)
-        # grp = ProcessGroup(restart=False, policy=global_policy)
 
-        # # create a process group that runs on a subset of nodes
-        # for node_num in range(num_nodes_to_use):
-        #     node_name = Node(node_list[node_num]).hostname
-        #     local_policy = Policy(placement=Policy.Placement.HOST_NAME,
-        #                           host_name=node_name)
-        #     grp.add_process(nproc=num_procs_per_node,
-        #                     template=TemplateProcess(target=placement_info,
-        #                                              args=args,
-        #                                              cwd=cwd,
-        #                                              stdout=Popen.PIPE,
-        #                                              policy=local_policy))
 
         grp = ProcessGroup(restart=False, pmi_enabled=request.pmi_enabled)
         grp.add_process(nproc=request.tasks, template=proc)

@@ -232,7 +232,7 @@ class DragonLauncher(WLMLauncher):
 
                 if server_socket is not None and server_process_pid:
                     atexit.register(
-                        dragon_cleanup,
+                        _dragon_cleanup,
                         server_socket=server_socket,
                         server_process_pid=server_process_pid,
                     )
@@ -367,7 +367,7 @@ class DragonLauncher(WLMLauncher):
         if (socket := self._dragon_head_socket) is None:
             raise LauncherError("Launcher is not connected to Dragon")
 
-        return DragonLauncher.send_req_as_json(socket, request, flags)
+        return self.send_req_as_json(socket, request, flags)
 
     def __str__(self) -> str:
         return "Dragon"
@@ -429,13 +429,13 @@ def _assert_schema_type(typ: t.Type[_SchemaT], /) -> t.Callable[[object], _Schem
     return _inner
 
 
-def dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -> None:
+def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -> None:
     try:
         with DRG_LOCK:
             DragonLauncher.send_req_as_json(server_socket, DragonShutdownRequest())
     except zmq.error.ZMQError as e:
         logger.error(
-            "Could not send shutdown request to dragon server," f" ZMQ error: {e}"
+            f"Could not send shutdown request to dragon server, ZMQ error: {e}"
         )
     finally:
         os.kill(server_process_pid, signal.SIGINT)
