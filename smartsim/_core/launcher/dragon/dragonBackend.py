@@ -31,7 +31,6 @@ from threading import RLock
 # pylint: disable=import-error
 from dragon.native.process import Process, TemplateProcess
 from dragon.native.process_group import ProcessGroup
-# pylint: enable=import-error
 
 from smartsim._core.schemas import (
     DragonHandshakeRequest,
@@ -54,6 +53,7 @@ from smartsim.status import (
     STATUS_RUNNING,
 )
 
+# pylint: enable=import-error
 
 
 class DragonBackend:
@@ -90,8 +90,6 @@ class DragonBackend:
             # stdout=Popen.PIPE,
             # stderr=Popen.PIPE,
         )
-
-
 
         grp = ProcessGroup(restart=False, pmi_enabled=request.pmi_enabled)
         grp.add_process(nproc=request.tasks, template=proc)
