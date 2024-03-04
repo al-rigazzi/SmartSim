@@ -31,6 +31,7 @@ from threading import RLock
 # pylint: disable=import-error
 from dragon.native.process import Process, TemplateProcess
 from dragon.native.process_group import ProcessGroup
+# pylint: enable=import-error
 
 from smartsim._core.schemas import (
     DragonHandshakeRequest,
@@ -53,10 +54,6 @@ from smartsim.status import (
     STATUS_RUNNING,
 )
 
-# from dragon.infrastructure.policy import Policy, GS_DEFAULT_POLICY
-
-
-# pylint: enable=import-error
 
 
 class DragonBackend:
