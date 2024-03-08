@@ -29,6 +29,7 @@ import json
 import os
 import signal
 import socket
+import sys
 import textwrap
 import typing as t
 from types import FrameType
@@ -87,24 +88,43 @@ def print_summary(network_interface: str, ip_address: str) -> None:
                 """),
         )
 
+def print_req(req: str) -> None:
+    if "__request_type__" in req:
+        req_dict: t.Dict[str, t.Any] = json.loads(req)
+        print(f"Received request: {req_dict['__request_type__']}", flush=True)
+    else:
+        print("Received request with no type.")
 
 def run(dragon_head_address: str) -> None:
-    global SHUTDOWN_INITIATED  # pylint: disable=global-statement
     print(f"Opening socket {dragon_head_address}")
+
+    context.setsockopt(zmq.SNDTIMEO, value=1000)
+    context.setsockopt(zmq.RCVTIMEO, value=1000)
     dragon_head_socket = context.socket(zmq.REP)
     dragon_head_socket.bind(dragon_head_address)
     dragon_backend = DragonBackend()
 
-    while not SHUTDOWN_INITIATED:
-        print(f"Listening to {dragon_head_address}")
-        req = dragon_head_socket.recv_json()
-        print(f"Received request: {req}")
-        drg_req = request_serializer.deserialize_from_json(str(req))
-        resp = dragon_backend.process_request(drg_req)
-        print(f"Sending response {resp}", flush=True)
-        dragon_head_socket.send_json(response_serializer.serialize_to_json(resp))
-        if isinstance(resp, DragonShutdownResponse):
-            SHUTDOWN_INITIATED = True
+    print(f"Listening to {dragon_head_address}")
+    while not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
+        try:
+            req: str = str(dragon_head_socket.recv_json())
+            print_req(req)
+            drg_req = request_serializer.deserialize_from_json(str(req))
+            resp = dragon_backend.process_request(drg_req)
+            print(f"Sending response {resp}", flush=True)
+            dragon_head_socket.send_json(response_serializer.serialize_to_json(resp))
+            dragon_backend.print_status()
+            if not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
+                print(f"Listening to {dragon_head_address}", flush=True)
+            else:
+                print("Shutdown has been requested", flush=True)
+                break
+        except zmq.Again:
+            pass
+        finally:
+            dragon_backend.update()
+
+    print("Exiting run()")
 
 
 def main(args: argparse.Namespace) -> int:
@@ -142,7 +162,7 @@ def main(args: argparse.Namespace) -> int:
 
     run(dragon_head_address=dragon_head_address)
 
-    print("Shutting down! Bye bye!")
+    print("Shutting down! Bye bye!", flush=True)
     return 0
 
 
@@ -153,6 +173,7 @@ def cleanup() -> None:
 
 
 if __name__ == "__main__":
+    print("Dragon server started", flush=True)
     os.environ["PYTHONUNBUFFERED"] = "1"
 
     parser = argparse.ArgumentParser(
@@ -175,4 +196,6 @@ if __name__ == "__main__":
     for sig in SIGNALS:
         signal.signal(sig, handle_signal)
 
-    raise SystemExit(main(args_))
+    main(args_)
+
+    exit(0)

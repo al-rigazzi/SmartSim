@@ -34,6 +34,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 import typing as t
 from pathlib import Path
 from threading import RLock
@@ -409,7 +410,7 @@ class DragonLauncher(WLMLauncher):
     ) -> DragonResponse:
         with DRG_LOCK:
             logger.debug(f"Sending {type(request).__name__}: {request}")
-            return (
+            response = (
                 _helpers.start_with(request)
                 .then(request_serializer.serialize_to_json)
                 .then(lambda req: socket.send_json(req, flags))
@@ -418,6 +419,9 @@ class DragonLauncher(WLMLauncher):
                 .then(response_serializer.deserialize_from_json)
                 .get_result()
             )
+            if response.error_message is not None:
+                logger.error(response.error_message)
+            return response
 
 
 def _assert_schema_type(typ: t.Type[_SchemaT], /) -> t.Callable[[object], _SchemaT]:
@@ -438,4 +442,5 @@ def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -
             f"Could not send shutdown request to dragon server, ZMQ error: {e}"
         )
     finally:
+        time.sleep(1)
         os.kill(server_process_pid, signal.SIGINT)
