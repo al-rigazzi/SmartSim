@@ -33,8 +33,8 @@ from threading import RLock
 # pylint: disable=import-error
 # isort: off
 from dragon.infrastructure.policy import Policy
-from dragon.native.process import Process, TemplateProcess, Popen
-from dragon.native.process_group import ProcessGroup
+from dragon.native.process import Process, TemplateProcess
+from dragon.native.process_group import ProcessGroup, DragonProcessGroupError
 from dragon.native.machine import System, Node
 
 # pylint: enable=import-error
@@ -72,7 +72,7 @@ class ProcessGroupInfo:
     hosts: t.List[str] = field(default_factory=list)
 
     @property
-    def smartsim_info(self) -> t.Tuple[str,  t.Optional[t.List[int]]]:
+    def smartsim_info(self) -> t.Tuple[str, t.Optional[t.List[int]]]:
         return (self.status, self.return_codes)
 
 
@@ -83,7 +83,8 @@ class DragonBackend:
     by threads spawned by it.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, pid: int) -> None:
+        self._pid = pid
         self._group_infos: t.Dict[str, ProcessGroupInfo] = {}
         self._step_id_lock = RLock()
         self._hostlist_lock = RLock()
@@ -92,7 +93,9 @@ class DragonBackend:
         # dictionary maps hostname to step_id of
         # step being executed on it
         self._initialize_hosts()
-        self._queued_steps: collections.OrderedDict[str, DragonRunRequest] = collections.OrderedDict()
+        self._queued_steps: collections.OrderedDict[str, DragonRunRequest] = (
+            collections.OrderedDict()
+        )
         self._running_steps: t.List[str] = []
         self._completed_steps: t.List[str] = []
 
@@ -183,13 +186,7 @@ class DragonBackend:
             global_policy = Policy(
                 placement=Policy.Placement.HOST_NAME, host_name=hosts[0]
             )
-            grp = ProcessGroup(
-                restart=False, pmi_enabled=True, policy=global_policy
-            )
-
-            local_policy = Policy(
-                    placement=Policy.Placement.HOST_NAME, host_name=hosts[0]
-            )
+            grp = ProcessGroup(restart=False, pmi_enabled=True, policy=global_policy)
 
             for node_num in range(request.nodes):
                 node_name = hosts[node_num]
@@ -201,7 +198,7 @@ class DragonBackend:
                     args=request.exe_args,
                     cwd=request.path,
                     env={**request.current_env, **request.env},
-                    stdout=Popen.PIPE,
+                    # stdout=Popen.PIPE,
                     # stderr=Popen.PIPE,
                     policy=local_policy,
                 )
@@ -269,7 +266,8 @@ class DragonBackend:
     def _(self, request: DragonUpdateStatusRequest) -> DragonUpdateStatusResponse:
         return DragonUpdateStatusResponse(
             statuses={
-                step_id: self._group_infos[step_id].smartsim_info for step_id in request.step_ids
+                step_id: self._group_infos[step_id].smartsim_info
+                for step_id in request.step_ids
             }
         )
 
@@ -282,8 +280,13 @@ class DragonBackend:
             if proc_group is None:
                 self._group_infos[request.step_id].status = STATUS_FAILED
             elif proc_group.status not in TERMINAL_STATUSES:
-                proc_group.kill()
-
+                try:
+                    proc_group.kill()
+                except DragonProcessGroupError:
+                    try:
+                        proc_group.stop()
+                    except DragonProcessGroupError:
+                        print("Process group already stopped")
 
         return DragonStopResponse()
 
@@ -291,7 +294,7 @@ class DragonBackend:
     # Deliberately suppressing errors so that overloads have the same signature
     # pylint: disable-next=no-self-use,unused-argument
     def _(self, request: DragonHandshakeRequest) -> DragonHandshakeResponse:
-        return DragonHandshakeResponse()
+        return DragonHandshakeResponse(dragon_pid=self._pid)
 
     @process_request.register
     # Deliberately suppressing errors so that overloads have the same signature

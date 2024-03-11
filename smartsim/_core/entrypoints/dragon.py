@@ -38,11 +38,7 @@ import zmq
 
 import smartsim._core.utils.helpers as _helpers
 from smartsim._core.launcher.dragon.dragonBackend import DragonBackend
-from smartsim._core.schemas import (
-    DragonBootstrapRequest,
-    DragonBootstrapResponse,
-    DragonShutdownResponse,
-)
+from smartsim._core.schemas import DragonBootstrapRequest, DragonBootstrapResponse
 from smartsim._core.schemas.dragonRequests import request_serializer
 from smartsim._core.schemas.dragonResponses import response_serializer
 from smartsim._core.utils.network import get_best_interface_and_address
@@ -88,6 +84,7 @@ def print_summary(network_interface: str, ip_address: str) -> None:
                 """),
         )
 
+
 def print_req(req: str) -> None:
     if "__request_type__" in req:
         req_dict: t.Dict[str, t.Any] = json.loads(req)
@@ -95,23 +92,24 @@ def print_req(req: str) -> None:
     else:
         print("Received request with no type.")
 
-def run(dragon_head_address: str) -> None:
+
+def run(dragon_head_address: str, dragon_pid: int) -> None:
     print(f"Opening socket {dragon_head_address}")
 
     context.setsockopt(zmq.SNDTIMEO, value=1000)
     context.setsockopt(zmq.RCVTIMEO, value=1000)
     dragon_head_socket = context.socket(zmq.REP)
     dragon_head_socket.bind(dragon_head_address)
-    dragon_backend = DragonBackend()
+    dragon_backend = DragonBackend(pid=dragon_pid)
 
     print(f"Listening to {dragon_head_address}")
     while not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
         try:
             req: str = str(dragon_head_socket.recv_json())
-            print_req(req)
-            drg_req = request_serializer.deserialize_from_json(str(req))
-            resp = dragon_backend.process_request(drg_req)
-            print(f"Sending response {resp}", flush=True)
+            resp = dragon_backend.process_request(
+                request_serializer.deserialize_from_json(req)
+            )
+            print(f"Received request {req}\nSending response {resp}", flush=True)
             dragon_head_socket.send_json(response_serializer.serialize_to_json(resp))
             dragon_backend.print_status()
             if not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
@@ -123,8 +121,6 @@ def run(dragon_head_address: str) -> None:
             pass
         finally:
             dragon_backend.update()
-
-    print("Exiting run()")
 
 
 def main(args: argparse.Namespace) -> int:
@@ -160,7 +156,7 @@ def main(args: argparse.Namespace) -> int:
 
     print_summary(interface, dragon_head_address)
 
-    run(dragon_head_address=dragon_head_address)
+    run(dragon_head_address=dragon_head_address, dragon_pid=response.dragon_pid)
 
     print("Shutting down! Bye bye!", flush=True)
     return 0
@@ -198,4 +194,4 @@ if __name__ == "__main__":
 
     main(args_)
 
-    exit(0)
+    sys.exit(0)

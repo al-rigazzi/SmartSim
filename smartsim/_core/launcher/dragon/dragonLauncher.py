@@ -100,6 +100,9 @@ class DragonLauncher(WLMLauncher):
         self._context.setsockopt(zmq.RCVTIMEO, value=self._timeout)
         self._dragon_head_socket: t.Optional[zmq.Socket[t.Any]] = None
         self._dragon_head_process: t.Optional[subprocess.Popen[bytes]] = None
+        # Returned by dragon head, useful if shutdown is to be requested
+        # but process was started by another launcher
+        self._dragon_head_pid: t.Optional[int] = None
 
     @property
     def is_connected(self) -> bool:
@@ -109,11 +112,13 @@ class DragonLauncher(WLMLauncher):
         self._dragon_head_socket = self._context.socket(zmq.REQ)
         self._dragon_head_socket.connect(address)
         try:
-            (
+            dragon_handshake = (
                 _helpers.start_with(DragonHandshakeRequest())
                 .then(self._send_request)
                 .then(_assert_schema_type(DragonHandshakeResponse))
+                .get_result()
             )
+            self._dragon_head_pid = dragon_handshake.dragon_pid
             logger.debug(
                 f"Successful handshake with Dragon server at address {address}"
             )
@@ -214,7 +219,11 @@ class DragonLauncher(WLMLauncher):
                 logger.debug(f"Connecting launcher to {dragon_head_address}")
 
                 (
-                    _helpers.start_with(DragonBootstrapResponse())
+                    _helpers.start_with(
+                        DragonBootstrapResponse(
+                            dragon_pid=self._dragon_head_process.pid
+                        )
+                    )
                     .then(response_serializer.serialize_to_json)
                     .then(launcher_socket.send_json)
                 )
@@ -438,9 +447,10 @@ def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -
         with DRG_LOCK:
             DragonLauncher.send_req_as_json(server_socket, DragonShutdownRequest())
     except zmq.error.ZMQError as e:
-        logger.error(
-            f"Could not send shutdown request to dragon server, ZMQ error: {e}"
-        )
+        logger.info(f"Could not send shutdown request to dragon server, ZMQ error: {e}")
     finally:
         time.sleep(1)
-        os.kill(server_process_pid, signal.SIGINT)
+        try:
+            os.kill(server_process_pid, signal.SIGINT)
+        except ProcessLookupError:
+            logger.info("Dragon server is not running.")

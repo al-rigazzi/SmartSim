@@ -33,6 +33,7 @@ import psutil
 import shutil
 import smartsim
 from smartsim import Experiment
+from smartsim._core.launcher.dragon.dragonLauncher import DragonLauncher, _dragon_cleanup
 from smartsim.entity import Model
 from smartsim.database import Orchestrator
 from smartsim.log import get_logger
@@ -711,6 +712,22 @@ class ColoUtils:
         assert colo_model.colocated
         # Check to make sure that limit_db_cpus made it into the colo settings
         return colo_model
+
+@pytest.fixture(scope="function")
+def global_dragon_teardown() -> t.Generator[t.Any, t.Any, t.Any]:
+    if test_launcher != "dragon":
+        return
+    exp_path = os.path.join(test_output_root, "dragon_teardown")
+    os.makedirs(exp_path)
+    exp: Experiment = Experiment("dragon_shutdown", exp_path=exp_path, launcher=test_launcher)
+    rs = exp.create_run_settings("sleep", ["0.1"])
+    model = exp.create_model("dummy", run_settings=rs)
+    exp.generate(model, overwrite=True)
+    exp.start(model, block=True)
+
+    launcher: DragonLauncher = exp._control._launcher
+    _dragon_cleanup(launcher._dragon_head_socket, launcher._dragon_head_pid)
+
 
 @pytest.fixture
 def config() -> smartsim._core.config.Config:

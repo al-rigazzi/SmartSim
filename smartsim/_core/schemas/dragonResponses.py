@@ -58,11 +58,13 @@ class DragonStopResponse(DragonResponse): ...
 
 
 @response_serializer.register("handshake")
-class DragonHandshakeResponse(DragonResponse): ...
+class DragonHandshakeResponse(DragonResponse):
+    dragon_pid: int
 
 
 @response_serializer.register("bootstrap")
-class DragonBootstrapResponse(DragonResponse): ...
+class DragonBootstrapResponse(DragonResponse):
+    dragon_pid: int
 
 
 @response_serializer.register("shutdown")

@@ -73,6 +73,11 @@ class DragonStep(Step):
         else:
             nodes = 1
 
+        if "ntasks-per-node" in run_args:
+            tasks_per_node = t.cast(int, run_args["ntasks-per-node"])
+        else:
+            tasks_per_node = 1
+
         exe_cmd = []
 
         if self.run_settings.colocated_db_settings:
@@ -98,6 +103,7 @@ class DragonStep(Step):
             exe_args=exe_cmd_and_args[1:],
             path=self.cwd,
             nodes=nodes,
+            tasks_per_node=tasks_per_node,
             output_file=output,
             error_file=error,
             env=run_settings.env_vars,
