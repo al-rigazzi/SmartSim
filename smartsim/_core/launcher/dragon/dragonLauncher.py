@@ -208,46 +208,51 @@ class DragonLauncher(WLMLauncher):
                 )
 
             if address is not None:
-                logger.debug(f"Listening to {socket_addr}")
-                request = (
-                    _helpers.start_with(launcher_socket.recv_json())
-                    .then(str)
-                    .then(request_serializer.deserialize_from_json)
-                    .then(_assert_schema_type(DragonBootstrapRequest))
-                    .get_result()
-                )
+                try:
+                    logger.debug(f"Listening to {socket_addr}")
+                    request = (
+                        _helpers.start_with(launcher_socket.recv_json())
+                        .then(str)
+                        .then(request_serializer.deserialize_from_json)
+                        .then(_assert_schema_type(DragonBootstrapRequest))
+                        .get_result()
+                    )
 
-                dragon_head_address = request.address
-                logger.debug(f"Connecting launcher to {dragon_head_address}")
+                    dragon_head_address = request.address
+                    logger.debug(f"Connecting launcher to {dragon_head_address}")
 
-                (
-                    _helpers.start_with(
-                        DragonBootstrapResponse(
-                            dragon_pid=self._dragon_head_process.pid
+                    (
+                        _helpers.start_with(
+                            DragonBootstrapResponse(
+                                dragon_pid=self._dragon_head_process.pid
+                            )
                         )
+                        .then(response_serializer.serialize_to_json)
+                        .then(launcher_socket.send_json)
                     )
-                    .then(response_serializer.serialize_to_json)
-                    .then(launcher_socket.send_json)
-                )
 
-                launcher_socket.close()
-                self._set_timeout(self._timeout)
-                self._handshake(dragon_head_address)
+                    launcher_socket.close()
+                    self._set_timeout(self._timeout)
+                    self._handshake(dragon_head_address)
 
-                # Only the launcher which started the server is
-                # responsible of it, that's why we register the
-                # cleanup in this code branch.
-                # The cleanup function should not have references
-                # to this object to avoid Garbage Collector lockup
-                server_socket = self._dragon_head_socket
-                server_process_pid = self._dragon_head_process.pid
+                    # Only the launcher which started the server is
+                    # responsible of it, that's why we register the
+                    # cleanup in this code branch.
+                    # The cleanup function should not have references
+                    # to this object to avoid Garbage Collector lockup
+                    server_socket = self._dragon_head_socket
+                    server_process_pid = self._dragon_head_process.pid
 
-                if server_socket is not None and server_process_pid:
-                    atexit.register(
-                        _dragon_cleanup,
-                        server_socket=server_socket,
-                        server_process_pid=server_process_pid,
-                    )
+                    if server_socket is not None and server_process_pid:
+                        atexit.register(
+                            _dragon_cleanup,
+                            server_socket=server_socket,
+                            server_process_pid=server_process_pid,
+                        )
+                except (zmq.ZMQError, zmq.Again) as e:
+                    self._dragon_head_process.wait(1.0)
+                    logger.warning(self._dragon_head_process.stderr)
+                    logger.warning(self._dragon_head_process.returncode)
             else:
                 # TODO parse output file
                 raise LauncherError("Could not receive address of Dragon head process")

@@ -744,7 +744,7 @@ def global_dragon_teardown() -> t.Generator[t.Any, t.Any, t.Any]:
     if test_launcher != "dragon":
         return
     exp_path = os.path.join(test_output_root, "dragon_teardown")
-    os.makedirs(exp_path)
+    os.makedirs(exp_path, exist_ok=True)
     exp: Experiment = Experiment("dragon_shutdown", exp_path=exp_path, launcher=test_launcher)
     rs = exp.create_run_settings("sleep", ["0.1"])
     model = exp.create_model("dummy", run_settings=rs)
