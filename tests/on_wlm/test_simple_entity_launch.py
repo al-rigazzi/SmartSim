@@ -24,6 +24,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import os.path
 from copy import deepcopy
 
 import pytest
@@ -60,6 +61,24 @@ def test_models(fileutils, test_dir, wlmutils):
     exp.start(M1, M2, block=True)
     statuses = exp.get_status(M1, M2)
     assert all([stat == status.STATUS_COMPLETED for stat in statuses])
+
+
+def test_multinode_app(has_mpi, test_dir, wlmutils, fileutils):
+    if not has_mpi:
+        pytest.skip("Test needs MPI to run")
+
+    exp_name = "test-mpi-app"
+    exp = Experiment(exp_name, launcher=wlmutils.get_test_launcher(), exp_path=test_dir)
+
+    app = fileutils.get_test_conf_path(os.path.join("mpi", "mpi_app"))
+
+    settings = exp.create_run_settings(app, [])
+    settings.set_nodes(3)
+
+    model = exp.create_model("mpi_app", run_settings=settings)
+    exp.generate(model)
+
+    exp.start(model)
 
 
 def test_ensemble(fileutils, test_dir, wlmutils):

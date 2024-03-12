@@ -29,7 +29,6 @@ import json
 import os
 import signal
 import socket
-import sys
 import textwrap
 import typing as t
 from types import FrameType
@@ -169,8 +168,8 @@ def cleanup() -> None:
 
 
 if __name__ == "__main__":
-    print("Dragon server started", flush=True)
     os.environ["PYTHONUNBUFFERED"] = "1"
+    print("Dragon server started", flush=True)
 
     parser = argparse.ArgumentParser(
         prefix_chars="+", description="SmartSim Dragon Head Process"
@@ -194,4 +193,5 @@ if __name__ == "__main__":
 
     main(args_)
 
-    sys.exit(0)
+    # pylint: disable-next=consider-using-sys-exit
+    exit(0)

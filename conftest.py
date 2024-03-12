@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import pytest
 import psutil
 import shutil
@@ -73,6 +74,7 @@ test_port = CONFIG.test_port
 test_account = CONFIG.test_account or ""
 test_batch_resources: t.Dict[t.Any,t.Any] = CONFIG.test_batch_resources
 test_output_dirs = 0
+test_mpi = None
 
 # Fill this at runtime if needed
 test_hostlist = None
@@ -103,6 +105,8 @@ def print_test_configuration() -> None:
     if test_batch_resources:
         print("TEST_BATCH_RESOURCES: ")
         print(json.dumps(test_batch_resources, indent=2))
+    if test_mpi:
+        print("Testing MPI application")
 
 
 def pytest_configure() -> None:
@@ -127,6 +131,7 @@ def pytest_sessionstart(
     while not os.path.isdir(test_output_root):
         time.sleep(0.1)
 
+    build_mpi_app()
     print_test_configuration()
 
 
@@ -137,7 +142,7 @@ def pytest_sessionfinish(
     Called after whole test run finished, right before
     returning the exit status to the system.
     """
-    if exitstatus == 0:
+    if False and exitstatus == 0:
         cleanup_attempts = 5
         while cleanup_attempts > 0:
             try:
@@ -154,6 +159,22 @@ def pytest_sessionfinish(
     kill_all_test_spawned_processes()
 
 
+def build_mpi_app() -> None:
+    global test_mpi
+    cc = shutil.which("cc")
+    if cc is None:
+        cc = shutil.which("gcc")
+    if cc is None:
+        test_mpi = False
+
+    fileutils = FileUtils()
+    path_to_app =  fileutils.get_test_conf_path("mpi")
+    cmd = [cc, os.path.join(path_to_app, "mpi_hello.c"), "-o", os.path.join(path_to_app, "mpi_app")]
+    proc = subprocess.Popen(cmd)
+    proc.wait(timeout=1)
+    test_mpi = proc.returncode == 0
+
+
 def kill_all_test_spawned_processes() -> None:
     # in case of test failure, clean up all spawned processes
     pid = os.getpid()
@@ -167,6 +188,11 @@ def kill_all_test_spawned_processes() -> None:
             child.kill()
     except Exception:
         print("Not all processes were killed after test")
+
+
+@pytest.fixture
+def has_mpi():
+    return test_mpi
 
 
 def get_hostlist() -> t.Optional[t.List[str]]:
@@ -727,6 +753,7 @@ def global_dragon_teardown() -> t.Generator[t.Any, t.Any, t.Any]:
 
     launcher: DragonLauncher = exp._control._launcher
     _dragon_cleanup(launcher._dragon_head_socket, launcher._dragon_head_pid)
+    time.sleep(5)
 
 
 @pytest.fixture

@@ -36,7 +36,9 @@ if pytest.test_launcher != "dragon":
     pytestmark = pytest.mark.skip(reason="Test is only for Dragon WLM systems")
 
 
-def test_dragon_available_server(wlmutils, test_dir):
+def test_dragon_global_path(
+    global_dragon_teardown, wlmutils, test_dir, monkeypatch):
+    monkeypatch.setenv("SMARTSIM_DRAGON_SERVER_PATH", test_dir)
     exp: Experiment = Experiment(
         "test_dragon_connection",
         exp_path=test_dir,
@@ -49,7 +51,9 @@ def test_dragon_available_server(wlmutils, test_dir):
     exp.start(model, block=True)
 
 
-def test_dragon_exp_path_connection(global_dragon_teardown, wlmutils, test_dir, monkeypatch):
+def test_dragon_exp_path(
+    global_dragon_teardown, wlmutils, test_dir, monkeypatch
+):
     monkeypatch.delenv("SMARTSIM_DRAGON_SERVER_PATH", raising=False)
     exp: Experiment = Experiment(
         "test_dragon_connection",
@@ -64,16 +68,3 @@ def test_dragon_exp_path_connection(global_dragon_teardown, wlmutils, test_dir, 
 
     launcher: DragonLauncher = exp._control._launcher
     _dragon_cleanup(launcher._dragon_head_socket, launcher._dragon_head_pid)
-
-
-def test_dragon_available_server_again(wlmutils, test_dir):
-    exp: Experiment = Experiment(
-        "test_dragon_connection",
-        exp_path=test_dir,
-        launcher=wlmutils.get_test_launcher(),
-    )
-    rs = exp.create_run_settings(exe="sleep", exe_args=["1"])
-    model = exp.create_model("sleep", run_settings=rs)
-
-    exp.generate(model)
-    exp.start(model, block=True)

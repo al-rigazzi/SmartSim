@@ -170,6 +170,8 @@ class DragonLauncher(WLMLauncher):
 
             cmd = [
                 "dragon",
+                "--transport",
+                "tcp",
                 sys.executable,
                 "-m",
                 "smartsim._core.entrypoints.dragon",
@@ -447,10 +449,19 @@ def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -
         with DRG_LOCK:
             DragonLauncher.send_req_as_json(server_socket, DragonShutdownRequest())
     except zmq.error.ZMQError as e:
-        logger.info(f"Could not send shutdown request to dragon server, ZMQ error: {e}")
+        try:
+            logger.info("Could not send shutdown request to dragon server")
+            logger.info(f"ZMQ error: {e}")
+        # If the I/O is already closed, let's just wrap things up.
+        except ValueError:
+            pass
     finally:
         time.sleep(1)
         try:
             os.kill(server_process_pid, signal.SIGINT)
         except ProcessLookupError:
-            logger.info("Dragon server is not running.")
+            try:
+                logger.info("Dragon server is not running.")
+            # If the I/O is already closed, let's just wrap things up.
+            except ValueError:
+                pass
