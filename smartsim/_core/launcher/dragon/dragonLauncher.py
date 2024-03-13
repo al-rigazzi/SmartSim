@@ -307,7 +307,7 @@ class DragonLauncher(WLMLauncher):
         else:  # pragma: no-cover
             raise TypeError(
                 f"{type(self).__name__} is unable to launch a step of "
-                f"type {type(self)}"
+                f"type {type(step)}"
             )
 
         self.step_mapping.add(step.name, step_id, task_id, step.managed)
