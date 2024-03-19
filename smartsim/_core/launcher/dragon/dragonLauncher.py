@@ -216,10 +216,14 @@ class DragonLauncher(WLMLauncher):
                 if self._dragon_head_process:
                     self._dragon_head_process.wait(1.0)
                     if self._dragon_head_process.stdout:
-                        for line in iter(self._dragon_head_process.stdout.readline, b""):
+                        for line in iter(
+                            self._dragon_head_process.stdout.readline, b""
+                        ):
                             logger.info(line.decode("utf-8").rstrip())
                     if self._dragon_head_process.stderr:
-                        for line in iter(self._dragon_head_process.stderr.readline, b""):
+                        for line in iter(
+                            self._dragon_head_process.stderr.readline, b""
+                        ):
                             logger.warning(line.decode("utf-8").rstrip())
                     logger.warning(self._dragon_head_process.returncode)
 
