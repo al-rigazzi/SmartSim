@@ -36,8 +36,7 @@ if pytest.test_launcher != "dragon":
     pytestmark = pytest.mark.skip(reason="Test is only for Dragon WLM systems")
 
 
-def test_dragon_global_path(
-    global_dragon_teardown, wlmutils, test_dir, monkeypatch):
+def test_dragon_global_path(global_dragon_teardown, wlmutils, test_dir, monkeypatch):
     monkeypatch.setenv("SMARTSIM_DRAGON_SERVER_PATH", test_dir)
     exp: Experiment = Experiment(
         "test_dragon_connection",
@@ -51,9 +50,7 @@ def test_dragon_global_path(
     exp.start(model, block=True)
 
 
-def test_dragon_exp_path(
-    global_dragon_teardown, wlmutils, test_dir, monkeypatch
-):
+def test_dragon_exp_path(global_dragon_teardown, wlmutils, test_dir, monkeypatch):
     monkeypatch.delenv("SMARTSIM_DRAGON_SERVER_PATH", raising=False)
     exp: Experiment = Experiment(
         "test_dragon_connection",

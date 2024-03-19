@@ -153,7 +153,6 @@ def main(args: argparse.Namespace) -> int:
                 "Could not receive connection confirmation from launcher. Aborting."
             )
 
-
         print_summary(interface, dragon_head_address)
         run(dragon_head_address=dragon_head_address, dragon_pid=response.dragon_pid)
 

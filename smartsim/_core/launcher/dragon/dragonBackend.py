@@ -268,6 +268,7 @@ class DragonBackend:
             statuses={
                 step_id: self._group_infos[step_id].smartsim_info
                 for step_id in request.step_ids
+                if step_id in self._group_infos
             }
         )
 

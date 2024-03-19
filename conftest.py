@@ -105,8 +105,6 @@ def print_test_configuration() -> None:
     if test_batch_resources:
         print("TEST_BATCH_RESOURCES: ")
         print(json.dumps(test_batch_resources, indent=2))
-    if test_mpi:
-        print("Testing MPI application")
 
 
 def pytest_configure() -> None:
@@ -131,7 +129,6 @@ def pytest_sessionstart(
     while not os.path.isdir(test_output_root):
         time.sleep(0.1)
 
-    build_mpi_app()
     print_test_configuration()
 
 
@@ -159,20 +156,23 @@ def pytest_sessionfinish(
     kill_all_test_spawned_processes()
 
 
-def build_mpi_app() -> None:
-    global test_mpi
+def build_mpi_app() -> str:
     cc = shutil.which("cc")
     if cc is None:
         cc = shutil.which("gcc")
     if cc is None:
-        test_mpi = False
+        return False
 
-    fileutils = FileUtils()
-    path_to_app =  fileutils.get_test_conf_path("mpi")
-    cmd = [cc, os.path.join(path_to_app, "mpi_hello.c"), "-o", os.path.join(path_to_app, "mpi_app")]
+    path_to_app =  FileUtils().get_test_conf_path("mpi")
+    path_to_out = os.path.join(test_output_root, "mpi_app")
+    os.makedirs(path_to_out, exist_ok=True)
+    cmd = [cc, os.path.join(path_to_app, "mpi_hello.c"), "-o", os.path.join(path_to_out, "mpi_app")]
     proc = subprocess.Popen(cmd)
     proc.wait(timeout=1)
-    test_mpi = proc.returncode == 0
+    if proc.returncode == 0:
+        return path_to_out
+    else:
+        return ""
 
 
 def kill_all_test_spawned_processes() -> None:
@@ -191,9 +191,12 @@ def kill_all_test_spawned_processes() -> None:
 
 
 @pytest.fixture
-def has_mpi():
+def mpi_app_path() -> str:
+    global test_mpi
+    if test_mpi is None:
+        test_mpi = build_mpi_app()
+    # Check path is not an empty string
     return test_mpi
-
 
 def get_hostlist() -> t.Optional[t.List[str]]:
     global test_hostlist

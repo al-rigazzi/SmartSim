@@ -212,9 +212,19 @@ class DragonLauncher(WLMLauncher):
                     start_new_session=True,
                 )
 
+            def log_dragon_outputs() -> None:
+                self._dragon_head_process.wait(1.0)
+                if self._dragon_head_process.stdout:
+                    for line in iter(self._dragon_head_process.stdout.readline, b""):
+                        logger.info(line.decode("utf-8").rstrip())
+                if self._dragon_head_process.stderr:
+                    for line in iter(self._dragon_head_process.stderr.readline, b""):
+                        logger.warning(line.decode("utf-8").rstrip())
+                logger.warning(self._dragon_head_process.returncode)
+
             if address is not None:
+                logger.debug(f"Listening to {socket_addr}")
                 try:
-                    logger.debug(f"Listening to {socket_addr}")
                     request = (
                         _helpers.start_with(launcher_socket.recv_json())
                         .then(str)
@@ -222,10 +232,16 @@ class DragonLauncher(WLMLauncher):
                         .then(_assert_schema_type(DragonBootstrapRequest))
                         .get_result()
                     )
+                except (zmq.ZMQError, zmq.Again) as e:
+                    log_dragon_outputs()
+                    launcher_socket.close()
+                    raise LauncherError(
+                        "Did not receive bootstrap request from Dragon process"
+                    ) from e
 
-                    dragon_head_address = request.address
-                    logger.debug(f"Connecting launcher to {dragon_head_address}")
-
+                dragon_head_address = request.address
+                logger.debug(f"Connecting launcher to {dragon_head_address}")
+                try:
                     (
                         _helpers.start_with(
                             DragonBootstrapResponse(
@@ -235,34 +251,31 @@ class DragonLauncher(WLMLauncher):
                         .then(response_serializer.serialize_to_json)
                         .then(launcher_socket.send_json)
                     )
-
-                    launcher_socket.close()
-                    self._set_timeout(self._timeout)
-                    self._handshake(dragon_head_address)
-
-                    # Only the launcher which started the server is
-                    # responsible of it, that's why we register the
-                    # cleanup in this code branch.
-                    # The cleanup function should not have references
-                    # to this object to avoid Garbage Collector lockup
-                    server_socket = self._dragon_head_socket
-                    server_process_pid = self._dragon_head_process.pid
-
-                    if server_socket is not None and server_process_pid:
-                        atexit.register(
-                            _dragon_cleanup,
-                            server_socket=server_socket,
-                            server_process_pid=server_process_pid,
-                        )
                 except (zmq.ZMQError, zmq.Again) as e:
-                    self._dragon_head_process.wait(1.0)
-                    if self._dragon_head_process.stdout:
-                        for line in iter(self._dragon_head_process.stdout.readline, b""):
-                            logger.info(line.decode("utf-8").rstrip())
-                    if self._dragon_head_process.stderr:
-                        for line in iter(self._dragon_head_process.stderr.readline, b""):
-                            logger.warning(line.decode("utf-8").rstrip())
-                    logger.warning(self._dragon_head_process.returncode)
+                    log_dragon_outputs()
+                    launcher_socket.close()
+                    raise LauncherError(
+                        "Could not complete to Dragon process bootstrap"
+                    ) from e
+
+                launcher_socket.close()
+                self._set_timeout(self._timeout)
+                self._handshake(dragon_head_address)
+
+                # Only the launcher which started the server is
+                # responsible of it, that's why we register the
+                # cleanup in this code branch.
+                # The cleanup function should not have references
+                # to this object to avoid Garbage Collector lockup
+                server_socket = self._dragon_head_socket
+                server_process_pid = self._dragon_head_process.pid
+
+                if server_socket is not None and server_process_pid:
+                    atexit.register(
+                        _dragon_cleanup,
+                        server_socket=server_socket,
+                        server_process_pid=server_process_pid,
+                    )
             else:
                 # TODO parse output file
                 raise LauncherError("Could not receive address of Dragon head process")
@@ -299,6 +312,7 @@ class DragonLauncher(WLMLauncher):
             run_args = step.run_settings.run_args
             env = step.run_settings.env_vars
             nodes = int(run_args.get("nodes", None) or 1)
+            tasks_per_node = int(run_args.get("tasks-per-node", None) or 1)
             response = (
                 _helpers.start_with(
                     DragonRunRequest(
@@ -307,6 +321,7 @@ class DragonLauncher(WLMLauncher):
                         path=step.cwd,
                         name=step.name,
                         nodes=nodes,
+                        tasks_per_node=tasks_per_node,
                         env=env,
                         current_env=os.environ,
                         output_file=out,
@@ -455,7 +470,6 @@ class DragonLauncher(WLMLauncher):
         socket: zmq.Socket[t.Any], request: DragonRequest, flags: int = 0
     ) -> DragonResponse:
         with DRG_LOCK:
-            logger.debug(f"Sending {type(request).__name__}: {request}")
             response = (
                 _helpers.start_with(request)
                 .then(request_serializer.serialize_to_json)
@@ -481,15 +495,16 @@ def _assert_schema_type(typ: t.Type[_SchemaT], /) -> t.Callable[[object], _Schem
 
 def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -> None:
     try:
-        with DRG_LOCK:
-            DragonLauncher.send_req_as_json(server_socket, DragonShutdownRequest())
+        DragonLauncher.send_req_as_json(server_socket, DragonShutdownRequest())
     except zmq.error.ZMQError as e:
         try:
             logger.info("Could not send shutdown request to dragon server")
-            logger.info(f"ZMQ error: {e}")
+            logger.info(f"ZMQ error: {e}", exc_info=True)
         # If the I/O is already closed, let's just wrap things up.
         except ValueError:
             pass
+    except ValueError:
+        pass
     finally:
         time.sleep(1)
         try:
