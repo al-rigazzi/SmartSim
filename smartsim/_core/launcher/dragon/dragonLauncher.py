@@ -516,7 +516,6 @@ def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -
             print("Dragon server is not running.", flush=True)
 
 
-
 def _resolve_dragon_path(fallback: t.Union[str, "os.PathLike[str]"]) -> Path:
     dragon_server_path = CONFIG.dragon_server_path or os.path.join(
         fallback, ".smartsim", "dragon"
