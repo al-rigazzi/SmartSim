@@ -500,26 +500,21 @@ def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -
     try:
         DragonLauncher.send_req_as_json(server_socket, DragonShutdownRequest())
     except zmq.error.ZMQError as e:
-        try:
-            # Can't use the logger as I/O file may be closed
-            print("Could not send shutdown request to dragon server")
-            print(f"ZMQ error: {e}", flush=True)
-        # If the I/O is already closed, let's just wrap things up.
-        except ValueError:
-            pass
+        # Can't use the logger as I/O file may be closed
+        print("Could not send shutdown request to dragon server")
+        print(f"ZMQ error: {e}", flush=True)
+
     except ValueError:
         pass
     finally:
         time.sleep(1)
         try:
             os.kill(server_process_pid, signal.SIGINT)
+            print("Sent SIGINT to dragon server")
         except ProcessLookupError:
-            try:
-                # Can't use the logger as I/O file may be closed
-                print("Dragon server is not running.", flush=True)
-            # If the I/O is already closed, let's just wrap things up.
-            except ValueError:
-                pass
+            # Can't use the logger as I/O file may be closed
+            print("Dragon server is not running.", flush=True)
+
 
 
 def _resolve_dragon_path(fallback: t.Union[str, "os.PathLike[str]"]) -> Path:
