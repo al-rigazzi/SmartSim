@@ -240,10 +240,7 @@ class Config:
     def test_no_mpi(self) -> bool:  # pragma: no cover
         # None means that an MPI app will be tested if a small
         # test program compiles: anything else will disable it
-        if "SMARTSIM_TEST_NO_MPI" in os.environ:
-            return True
-        else:
-            return False
+        return "SMARTSIM_TEST_NO_MPI" in os.environ
 
     @property
     def telemetry_frequency(self) -> int:
