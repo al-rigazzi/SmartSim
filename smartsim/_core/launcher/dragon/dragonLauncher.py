@@ -275,7 +275,7 @@ class DragonLauncher(WLMLauncher):
                 server_socket = self._dragon_head_socket
                 server_process_pid = self._dragon_head_process.pid
 
-                if server_socket is not None and server_process_pid:
+                if server_socket is not None and self._dragon_head_process is not None:
                     atexit.register(
                         _dragon_cleanup,
                         server_socket=server_socket,
@@ -503,8 +503,9 @@ def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -
         DragonLauncher.send_req_as_json(server_socket, DragonShutdownRequest())
     except zmq.error.ZMQError as e:
         try:
-            logger.info("Could not send shutdown request to dragon server")
-            logger.info(f"ZMQ error: {e}", exc_info=True)
+            # Can't use the logger as I/O file may be closed
+            print("Could not send shutdown request to dragon server")
+            print(f"ZMQ error: {e}", flush=True)
         # If the I/O is already closed, let's just wrap things up.
         except ValueError:
             pass
@@ -516,7 +517,8 @@ def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -
             os.kill(server_process_pid, signal.SIGINT)
         except ProcessLookupError:
             try:
-                logger.info("Dragon server is not running.")
+                # Can't use the logger as I/O file may be closed
+                print("Dragon server is not running.", flush=True)
             # If the I/O is already closed, let's just wrap things up.
             except ValueError:
                 pass
@@ -530,6 +532,6 @@ def _resolve_dragon_path(fallback: t.Union[str, "os.PathLike[str]"]) -> Path:
     if len(dragon_server_paths) > 1:
         logger.warning(
             "Multiple dragon servers not supported, "
-            "will connect to (or create) first server in list."
+            "will connect to (or start) first server in list."
         )
     return Path(dragon_server_paths[0])
