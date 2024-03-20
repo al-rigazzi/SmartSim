@@ -145,7 +145,7 @@ class DragonRunSettings(RunSettings):
         :param tasks_per_node: number of tasks per node
         :type tasks_per_node: int
         """
-        self.run_args["ntasks-per-node"] = int(tasks_per_node)
+        self.run_args["tasks-per-node"] = int(tasks_per_node)
 
     def set_memory_per_node(self, memory_per_node: int) -> None:
         """Specify the real memory required per node
