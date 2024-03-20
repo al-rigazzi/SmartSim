@@ -175,8 +175,6 @@ class DragonLauncher(WLMLauncher):
 
             cmd = [
                 "dragon",
-                "--transport",
-                "tcp",
                 sys.executable,
                 "-m",
                 "smartsim._core.entrypoints.dragon",

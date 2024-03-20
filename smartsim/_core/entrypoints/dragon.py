@@ -29,6 +29,7 @@ import json
 import os
 import signal
 import socket
+import sys
 import textwrap
 import typing as t
 from types import FrameType
@@ -192,5 +193,4 @@ if __name__ == "__main__":
 
     main(args_)
 
-    # pylint: disable-next=consider-using-sys-exit
-    exit(0)
+    sys.exit(0)

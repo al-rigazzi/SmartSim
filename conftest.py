@@ -74,7 +74,7 @@ test_port = CONFIG.test_port
 test_account = CONFIG.test_account or ""
 test_batch_resources: t.Dict[t.Any,t.Any] = CONFIG.test_batch_resources
 test_output_dirs = 0
-test_mpi = None
+test_mpi = None if not CONFIG.test_no_mpi else False
 
 # Fill this at runtime if needed
 test_hostlist = None
@@ -129,6 +129,11 @@ def pytest_sessionstart(
     while not os.path.isdir(test_output_root):
         time.sleep(0.1)
 
+    if CONFIG.dragon_server_path is None:
+        dragon_server_path =  os.path.join(test_output_root, "dragon_server")
+        os.makedirs(dragon_server_path)
+        os.environ["SMARTSIM_DRAGON_SERVER_PATH"] = dragon_server_path
+
     print_test_configuration()
 
 
@@ -139,7 +144,7 @@ def pytest_sessionfinish(
     Called after whole test run finished, right before
     returning the exit status to the system.
     """
-    if False and exitstatus == 0:
+    if exitstatus == 0:
         cleanup_attempts = 5
         while cleanup_attempts > 0:
             try:
@@ -742,9 +747,15 @@ class ColoUtils:
         # Check to make sure that limit_db_cpus made it into the colo settings
         return colo_model
 
+
 @pytest.fixture(scope="function")
 def global_dragon_teardown() -> t.Generator[t.Any, t.Any, t.Any]:
-    if test_launcher != "dragon":
+    """Connect to a dragon server started at the path indicated by
+    the environment variable SMARTSIM_DRAGON_SERVER_PATH and
+    force its shutdown to bring down the runtime and allow a subsequent
+    allocation of a new runtime.
+    """
+    if test_launcher != "dragon" or CONFIG.dragon_server_path is None:
         return
     exp_path = os.path.join(test_output_root, "dragon_teardown")
     os.makedirs(exp_path, exist_ok=True)
