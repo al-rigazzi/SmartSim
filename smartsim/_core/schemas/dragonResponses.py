@@ -34,36 +34,35 @@ from smartsim._core.schemas.types import NonEmptyStr
 # Black and Pylint disagree about where to put the `...`
 # pylint: disable=multiple-statements
 
+response_registry = _utils.SchemaRegistry["DragonResponse"]()
+
 
 class DragonResponse(BaseModel):
     error_message: t.Optional[str] = None
 
 
-response_serializer = _utils.SchemaSerializer[str, DragonResponse]("response_type")
-
-
-@response_serializer.register("run")
+@response_registry.register("run")
 class DragonRunResponse(DragonResponse):
     step_id: NonEmptyStr
 
 
-@response_serializer.register("status_update")
+@response_registry.register("status_update")
 class DragonUpdateStatusResponse(DragonResponse):
     # status is a dict: {step_id: (is_alive, returncode)}
     statuses: t.Mapping[NonEmptyStr, t.Tuple[NonEmptyStr, t.Optional[t.List[int]]]] = {}
 
 
-@response_serializer.register("stop")
+@response_registry.register("stop")
 class DragonStopResponse(DragonResponse): ...
 
 
-@response_serializer.register("handshake")
+@response_registry.register("handshake")
 class DragonHandshakeResponse(DragonResponse): ...
 
 
-@response_serializer.register("bootstrap")
+@response_registry.register("bootstrap")
 class DragonBootstrapResponse(DragonResponse): ...
 
 
-@response_serializer.register("shutdown")
+@response_registry.register("shutdown")
 class DragonShutdownResponse(DragonResponse): ...

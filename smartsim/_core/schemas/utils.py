@@ -1,22 +1,46 @@
-import json
 import typing as t
+from dataclasses import dataclass
 
 import pydantic
 
-_KeyT = t.TypeVar("_KeyT")
 _SchemaT = t.TypeVar("_SchemaT", bound=pydantic.BaseModel)
 
 
-class SchemaSerializer(t.Generic[_KeyT, _SchemaT]):
+@t.final
+@dataclass(frozen=True)
+class _Message(t.Generic[_SchemaT]):
+    header: str
+    payload: _SchemaT
+    delimiter: str
+
+    def __str__(self) -> str:
+        return self.delimiter.join((self.header, self.payload.json()))
+
+    @classmethod
+    def from_str(
+        cls, str_: str, delimiter: str, payload_type: t.Type[_SchemaT]
+    ) -> "_Message[_SchemaT]":
+        header, payload = str_.split(delimiter, 1)
+        return cls(header, payload_type.parse_raw(payload), delimiter)
+
+
+class SchemaRegistry(t.Generic[_SchemaT]):
+    _DEFAULT_DELIMITER = "|"
+
     def __init__(
         self,
-        type_name: str,
-        init_map: t.Optional[t.Mapping[_KeyT, t.Type[_SchemaT]]] = None,
+        message_delimiter: str = _DEFAULT_DELIMITER,
+        init_map: t.Optional[t.Mapping[str, t.Type[_SchemaT]]] = None,
     ):
+        if not message_delimiter:
+            raise ValueError("Message delimiter cannot be an empty string")
+        self._msg_delim = message_delimiter
         self._map = dict(init_map) if init_map else {}
-        self._type_name_key = f"__{type_name}__"
 
-    def register(self, key: _KeyT) -> t.Callable[[t.Type[_SchemaT]], t.Type[_SchemaT]]:
+    def register(self, key: str) -> t.Callable[[t.Type[_SchemaT]], t.Type[_SchemaT]]:
+        if self._msg_delim in key:
+            _msg = f"Registry key cannot contain delimiter `{self._msg_delim}`"
+            raise ValueError(_msg)
         if key in self._map:
             raise KeyError(f"Key `{key}` has already been registered for this parser")
 
@@ -26,30 +50,30 @@ class SchemaSerializer(t.Generic[_KeyT, _SchemaT]):
 
         return _register
 
-    def schema_to_dict(self, schema: _SchemaT) -> t.Dict[str, t.Any]:
+    def to_string(self, schema: _SchemaT) -> str:
+        return str(self._to_message(schema))
+
+    def _to_message(self, schema: _SchemaT) -> _Message[_SchemaT]:
         reverse_map = dict((v, k) for k, v in self._map.items())
         try:
             val = reverse_map[type(schema)]
         except KeyError:
             raise TypeError(f"Unregistered schema type: {type(schema)}") from None
-        # TODO: This method is deprectated in pydantic >= 2
-        dict_ = schema.dict()
-        dict_[self._type_name_key] = val
-        return dict_
+        return _Message(val, schema, self._msg_delim)
 
-    def serialize_to_json(self, schema: _SchemaT) -> str:
-        return json.dumps(self.schema_to_dict(schema))
-
-    def mapping_to_schema(self, obj: t.Mapping[t.Any, t.Any]) -> _SchemaT:
+    def from_string(self, str_: str) -> _SchemaT:
         try:
-            type_ = obj[self._type_name_key]
-        except KeyError:
-            raise ValueError(f"Could not parse object: {obj}") from None
+            header, _ = str_.split(self._msg_delim, 1)
+        except ValueError:
+            _msg = f"Failed to find message header in string {repr(str_)}"
+            raise ValueError(_msg) from None
         try:
-            cls = self._map[type_]
+            cls = self._map[header]
         except KeyError:
-            raise ValueError(f"No type of value `{type_}` is registered") from None
-        return cls.parse_obj(obj)
+            raise ValueError(f"No type of value `{header}` is registered") from None
+        msg = _Message.from_str(str_, self._msg_delim, cls)
+        return self._from_message(msg)
 
-    def deserialize_from_json(self, obj: str) -> _SchemaT:
-        return self.mapping_to_schema(json.loads(obj))
+    @staticmethod
+    def _from_message(msg: _Message[_SchemaT]) -> _SchemaT:
+        return msg.payload

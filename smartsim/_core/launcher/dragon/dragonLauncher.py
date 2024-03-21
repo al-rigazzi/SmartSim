@@ -41,8 +41,8 @@ from threading import RLock
 import zmq
 
 import smartsim._core.utils.helpers as _helpers
-from smartsim._core.schemas.dragonRequests import request_serializer
-from smartsim._core.schemas.dragonResponses import response_serializer
+from smartsim._core.schemas.dragonRequests import request_registry
+from smartsim._core.schemas.dragonResponses import response_registry
 from smartsim._core.schemas.types import NonEmptyStr
 
 from ....error import LauncherError
@@ -207,9 +207,8 @@ class DragonLauncher(WLMLauncher):
             if address is not None:
                 logger.debug(f"Listening to {socket_addr}")
                 request = (
-                    _helpers.start_with(launcher_socket.recv_json())
-                    .then(str)
-                    .then(request_serializer.deserialize_from_json)
+                    _helpers.start_with(launcher_socket.recv_string())
+                    .then(request_registry.from_string)
                     .then(_assert_schema_type(DragonBootstrapRequest))
                     .get_result()
                 )
@@ -219,8 +218,8 @@ class DragonLauncher(WLMLauncher):
 
                 (
                     _helpers.start_with(DragonBootstrapResponse())
-                    .then(response_serializer.serialize_to_json)
-                    .then(launcher_socket.send_json)
+                    .then(response_registry.to_string)
+                    .then(launcher_socket.send_string)
                 )
 
                 launcher_socket.close()
@@ -436,11 +435,10 @@ class DragonLauncher(WLMLauncher):
             logger.debug(f"Sending {type(request).__name__}: {request}")
             return (
                 _helpers.start_with(request)
-                .then(request_serializer.serialize_to_json)
-                .then(lambda req: socket.send_json(req, flags))
-                .then(lambda _: socket.recv_json())
-                .then(str)
-                .then(response_serializer.deserialize_from_json)
+                .then(request_registry.to_string)
+                .then(lambda req: socket.send_string(req, flags))
+                .then(lambda _: socket.recv_string())
+                .then(response_registry.from_string)
                 .get_result()
             )
 

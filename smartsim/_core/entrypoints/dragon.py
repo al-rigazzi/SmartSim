@@ -42,8 +42,8 @@ from smartsim._core.schemas import (
     DragonBootstrapResponse,
     DragonShutdownResponse,
 )
-from smartsim._core.schemas.dragonRequests import request_serializer
-from smartsim._core.schemas.dragonResponses import response_serializer
+from smartsim._core.schemas.dragonRequests import request_registry
+from smartsim._core.schemas.dragonResponses import response_registry
 from smartsim._core.utils.network import get_best_interface_and_address
 
 # kill is not catchable
@@ -97,12 +97,12 @@ def run(dragon_head_address: str) -> None:
 
     while not SHUTDOWN_INITIATED:
         print(f"Listening to {dragon_head_address}")
-        req = dragon_head_socket.recv_json()
+        req = dragon_head_socket.recv_string()
         print(f"Received request: {req}")
-        drg_req = request_serializer.deserialize_from_json(str(req))
+        drg_req = request_registry.from_string(req)
         resp = dragon_backend.process_request(drg_req)
         print(f"Sending response {resp}", flush=True)
-        dragon_head_socket.send_json(response_serializer.serialize_to_json(resp))
+        dragon_head_socket.send_string(response_registry.to_string(resp))
         if isinstance(resp, DragonShutdownResponse):
             SHUTDOWN_INITIATED = True
 
@@ -125,11 +125,10 @@ def main(args: argparse.Namespace) -> int:
 
         response = (
             _helpers.start_with(DragonBootstrapRequest(address=dragon_head_address))
-            .then(request_serializer.serialize_to_json)
-            .then(launcher_socket.send_json)
-            .then(lambda _: launcher_socket.recv_json())
-            .then(str)
-            .then(response_serializer.deserialize_from_json)
+            .then(request_registry.to_string)
+            .then(launcher_socket.send_string)
+            .then(lambda _: launcher_socket.recv_string())
+            .then(response_registry.from_string)
             .get_result()
         )
 
