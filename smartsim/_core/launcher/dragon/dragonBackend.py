@@ -195,7 +195,7 @@ class DragonBackend:
             global_policy = Policy(
                 placement=Policy.Placement.HOST_NAME, host_name=hosts[0]
             )
-            grp = ProcessGroup(restart=False, pmi_enabled=True, policy=global_policy)
+            grp = ProcessGroup(restart=False, pmi_enabled=request.pmi_enabled, policy=global_policy)
 
             for node_num in range(request.nodes):
                 node_name = hosts[node_num]
