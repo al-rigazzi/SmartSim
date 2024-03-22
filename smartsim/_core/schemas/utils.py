@@ -42,7 +42,7 @@ class SchemaRegistry(t.Generic[_SchemaT]):
             _msg = f"Registry key cannot contain delimiter `{self._msg_delim}`"
             raise ValueError(_msg)
         if not key:
-            raise KeyError(f"Key cannot be the empty string")
+            raise KeyError("Key cannot be the empty string")
         if key in self._map:
             raise KeyError(f"Key `{key}` has already been registered for this parser")
 
