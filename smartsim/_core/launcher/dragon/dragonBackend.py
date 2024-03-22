@@ -148,7 +148,7 @@ class DragonBackend:
 
         num_hosts: int = request.nodes
         with self._hostlist_lock:
-            if num_hosts > len(self._free_hosts):
+            if num_hosts <= 0 or num_hosts > len(self._free_hosts):
                 return None
             to_allocate = []
             for _ in range(num_hosts):
