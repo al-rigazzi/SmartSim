@@ -73,8 +73,15 @@ def test_registry_errors_on_unknown_schema():
         registry.to_string(Book(title="The Shortest Story of All Time", num_pages=1))
 
 
-def test_registry_correctly_maps_to_expected_type():
-    registry = SchemaRegistry()
+@pytest.mark.parametrize(
+    "delim",
+    (
+        pytest.param(SchemaRegistry._DEFAULT_DELIMITER, id="default delimiter"),
+        pytest.param("::", id="custom delimiter"),
+    ),
+)
+def test_registry_correctly_maps_to_expected_type(delim):
+    registry = SchemaRegistry(delim)
     registry.register("person")(Person)
     registry.register("book")(Book)
     person = Person(name="Bob", age=36)

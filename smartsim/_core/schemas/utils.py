@@ -63,14 +63,14 @@ class SchemaRegistry(t.Generic[_SchemaT]):
 
     def from_string(self, str_: str) -> _SchemaT:
         try:
-            header, _ = str_.split(self._msg_delim, 1)
+            type_, _ = str_.split(self._msg_delim, 1)
         except ValueError:
-            _msg = f"Failed to find message header in string {repr(str_)}"
+            _msg = f"Failed determine schema type of string {repr(str_)}"
             raise ValueError(_msg) from None
         try:
-            cls = self._map[header]
+            cls = self._map[type_]
         except KeyError:
-            raise ValueError(f"No type of value `{header}` is registered") from None
+            raise ValueError(f"No type of value `{type_}` is registered") from None
         msg = _Message.from_str(str_, self._msg_delim, cls)
         return self._from_message(msg)
 
