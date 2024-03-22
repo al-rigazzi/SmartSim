@@ -599,7 +599,7 @@ def main(
     )
 
     cooldown_duration = cooldown_duration or CONFIG.telemetry_cooldown
-    logger.warning(cooldown_duration)
+    logger.debug(f"Cooldown period (seconds): {cooldown_duration}")
     log_handler = LoggingEventHandler(logger)  # type: ignore
     action_handler = ManifestEventHandler(monitor_pattern, logger)
 

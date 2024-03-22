@@ -29,12 +29,18 @@ import functools
 import typing as t
 from dataclasses import dataclass, field
 from threading import RLock
+from uuid import uuid4
 
 # pylint: disable=import-error
 # isort: off
 from dragon.infrastructure.policy import Policy
 from dragon.native.process import Process, TemplateProcess
-from dragon.native.process_group import ProcessGroup, DragonProcessGroupError
+from dragon.native.process_group import (
+    ProcessGroup,
+    DragonProcessGroupError,
+    Error,
+    Running,
+)
 from dragon.native.machine import System, Node
 
 # pylint: enable=import-error
@@ -61,6 +67,9 @@ from smartsim.status import (
     STATUS_RUNNING,
     TERMINAL_STATUSES,
 )
+
+DRG_ERROR_STATUS = str(Error())
+DRG_RUNNING_STATUS = str(Running())
 
 
 @dataclass
@@ -153,13 +162,13 @@ class DragonBackend:
     def _get_new_id(self) -> str:
         with self._step_id_lock:
             self._step_id += 1
-            return str(self._step_id)
+            return str(uuid4())[-4:] + "-" + str(self._step_id)
 
     @functools.singledispatchmethod
     # Deliberately suppressing errors so that overloads have the same signature
     # pylint: disable-next=no-self-use
     def process_request(self, request: DragonRequest) -> DragonResponse:
-        raise TypeError("Unsure how to process a `{type(request)}` request")
+        raise TypeError(f"Unsure how to process a `{type(request)}` request")
 
     @process_request.register
     def _(self, request: DragonRunRequest) -> DragonRunResponse:
@@ -229,7 +238,7 @@ class DragonBackend:
             group_info = self._group_infos[step_id]
             grp = group_info.process_group
 
-            if grp.status == "Running":
+            if grp.status == DRG_RUNNING_STATUS:
                 group_info.status = STATUS_RUNNING
             else:
                 puids = group_info.puids
@@ -244,7 +253,7 @@ class DragonBackend:
                     group_info.return_codes = [0]
                 group_info.status = (
                     STATUS_FAILED
-                    if any(group_info.return_codes) or grp.status == "Error"
+                    if any(group_info.return_codes) or grp.status == DRG_ERROR_STATUS
                     else STATUS_COMPLETED
                 )
 

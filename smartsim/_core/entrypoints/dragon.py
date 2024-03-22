@@ -42,6 +42,9 @@ from smartsim._core.schemas import DragonBootstrapRequest, DragonBootstrapRespon
 from smartsim._core.schemas.dragonRequests import request_serializer
 from smartsim._core.schemas.dragonResponses import response_serializer
 from smartsim._core.utils.network import get_best_interface_and_address
+from smartsim.log import get_logger
+
+logger = get_logger(__name__)
 
 # kill is not catchable
 SIGNALS = [signal.SIGINT, signal.SIGQUIT, signal.SIGTERM, signal.SIGABRT]
@@ -56,8 +59,6 @@ def handle_signal(signo: int, _frame: t.Optional[FrameType]) -> None:
         print(f"Received {signo}")
     cleanup()
 
-
-context = zmq.Context()
 
 """
 Dragon server entrypoint script
@@ -93,12 +94,14 @@ def print_req(req: str) -> None:
         print("Received request with no type.")
 
 
-def run(dragon_head_address: str, dragon_pid: int) -> None:
+def run(
+    dragon_head_address: str, dragon_pid: int, zmq_context: zmq.Context[t.Any]
+) -> None:
     print(f"Opening socket {dragon_head_address}")
 
-    context.setsockopt(zmq.SNDTIMEO, value=1000)
-    context.setsockopt(zmq.RCVTIMEO, value=1000)
-    dragon_head_socket = context.socket(zmq.REP)
+    zmq_context.setsockopt(zmq.SNDTIMEO, value=1000)
+    zmq_context.setsockopt(zmq.RCVTIMEO, value=1000)
+    dragon_head_socket = zmq_context.socket(zmq.REP)
     dragon_head_socket.bind(dragon_head_address)
     dragon_backend = DragonBackend(pid=dragon_pid)
 
@@ -123,8 +126,10 @@ def run(dragon_head_address: str, dragon_pid: int) -> None:
             dragon_backend.update()
 
 
-def main(args: argparse.Namespace) -> int:
-    interface, address = get_best_interface_and_address()
+def main(args: argparse.Namespace, zmq_context: zmq.Context[t.Any]) -> int:
+    if_config = get_best_interface_and_address()
+    interface = if_config.interface
+    address = if_config.address
     if not interface:
         raise ValueError("Net interface could not be determined")
     dragon_head_address = f"tcp://{address}"
@@ -136,7 +141,7 @@ def main(args: argparse.Namespace) -> int:
         else:
             dragon_head_address += ":5555"
 
-        launcher_socket = context.socket(zmq.REQ)
+        launcher_socket = zmq_context.socket(zmq.REQ)
         launcher_socket.connect(args.launching_address)
 
         response = (
@@ -155,7 +160,15 @@ def main(args: argparse.Namespace) -> int:
             )
 
         print_summary(interface, dragon_head_address)
-        run(dragon_head_address=dragon_head_address, dragon_pid=response.dragon_pid)
+        try:
+            run(
+                dragon_head_address=dragon_head_address,
+                dragon_pid=response.dragon_pid,
+                zmq_context=zmq_context,
+            )
+        except Exception as e:
+            logger.error(f"Dragon server failed with {e}", exc_info=True)
+            return os.EX_SOFTWARE
 
     print("Shutting down! Bye bye!", flush=True)
     return 0
@@ -191,6 +204,6 @@ if __name__ == "__main__":
     for sig in SIGNALS:
         signal.signal(sig, handle_signal)
 
-    main(args_)
+    context = zmq.Context()
 
-    sys.exit(0)
+    sys.exit(main(args_, context))

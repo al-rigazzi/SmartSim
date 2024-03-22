@@ -180,7 +180,7 @@ class DragonLauncher(WLMLauncher):
                 "smartsim._core.entrypoints.dragon",
             ]
 
-            _, address = get_best_interface_and_address()
+            address = get_best_interface_and_address().address
             if address is not None:
                 self._set_timeout(self._startup_timeout)
                 launcher_socket = self._context.socket(zmq.REP)

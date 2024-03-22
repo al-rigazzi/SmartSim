@@ -25,13 +25,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import socket
-import typing as t
+from collections import namedtuple
 
 import psutil
 
 """
 A handful of useful functions for dealing with networks
 """
+
+
+IfConfig = namedtuple("IfConfig", ["interface", "address"])
 
 
 def get_ip_from_host(host: str) -> str:
@@ -89,11 +92,11 @@ def current_ip(interface: str = "lo") -> str:  # pragma: no cover
     return get_ip_from_interface(interface)
 
 
-def get_best_interface_and_address() -> t.Tuple[t.Optional[str], t.Optional[str]]:
+def get_best_interface_and_address() -> IfConfig:
     available_ifs = psutil.net_if_addrs()
     # TODO make this a CONFIG-time parameter
     known_ifs = ["hsn", "ipogif", "ib"]
     for interface in available_ifs:
         if any(interface.startswith(if_prefix) for if_prefix in known_ifs):
-            return interface, get_ip_from_interface(interface)
-    return None, None
+            return IfConfig(interface, get_ip_from_interface(interface))
+    return IfConfig(None, None)
