@@ -1,17 +1,17 @@
 import typing as t
-from dataclasses import dataclass
 
 import pydantic
+import pydantic.dataclasses
 
 _SchemaT = t.TypeVar("_SchemaT", bound=pydantic.BaseModel)
 
 
 @t.final
-@dataclass(frozen=True)
+@pydantic.dataclasses.dataclass(frozen=True)
 class _Message(t.Generic[_SchemaT]):
-    header: str
     payload: _SchemaT
-    delimiter: str
+    header: str = pydantic.Field(min_length=1)
+    delimiter: str = pydantic.Field(min_length=1)
 
     def __str__(self) -> str:
         return self.delimiter.join((self.header, self.payload.json()))
@@ -21,7 +21,7 @@ class _Message(t.Generic[_SchemaT]):
         cls, str_: str, delimiter: str, payload_type: t.Type[_SchemaT]
     ) -> "_Message[_SchemaT]":
         header, payload = str_.split(delimiter, 1)
-        return cls(header, payload_type.parse_raw(payload), delimiter)
+        return cls(payload_type.parse_raw(payload), header, delimiter)
 
 
 class SchemaRegistry(t.Generic[_SchemaT]):
@@ -41,6 +41,8 @@ class SchemaRegistry(t.Generic[_SchemaT]):
         if self._msg_delim in key:
             _msg = f"Registry key cannot contain delimiter `{self._msg_delim}`"
             raise ValueError(_msg)
+        if not key:
+            raise KeyError(f"Key cannot be the empty string")
         if key in self._map:
             raise KeyError(f"Key `{key}` has already been registered for this parser")
 
@@ -59,13 +61,13 @@ class SchemaRegistry(t.Generic[_SchemaT]):
             val = reverse_map[type(schema)]
         except KeyError:
             raise TypeError(f"Unregistered schema type: {type(schema)}") from None
-        return _Message(val, schema, self._msg_delim)
+        return _Message(schema, val, self._msg_delim)
 
     def from_string(self, str_: str) -> _SchemaT:
         try:
             type_, _ = str_.split(self._msg_delim, 1)
         except ValueError:
-            _msg = f"Failed determine schema type of string {repr(str_)}"
+            _msg = f"Failed to determine schema type of the string {repr(str_)}"
             raise ValueError(_msg) from None
         try:
             cls = self._map[type_]

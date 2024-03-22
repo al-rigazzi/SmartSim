@@ -27,6 +27,12 @@ def test_schema_registrartion():
     assert registry._map == {"person": Person, "book": Book}
 
 
+def test_cannot_register_a_schema_under_an_empty_str():
+    registry = SchemaRegistry()
+    with pytest.raises(KeyError, match="Key cannot be the empty string"):
+        registry.register("")
+
+
 @pytest.mark.parametrize(
     "delim",
     (
@@ -41,9 +47,9 @@ def test_schema_to_string(delim):
     person = Person(name="Bob", age=36)
     book = Book(title="The Greatest Story of All Time", num_pages=10_000)
     assert registry.to_string(person) == str(
-        _Message("person", person, registry._msg_delim)
+        _Message(person, "person", registry._msg_delim)
     )
-    assert registry.to_string(book) == str(_Message("book", book, registry._msg_delim))
+    assert registry.to_string(book) == str(_Message(book, "book", registry._msg_delim))
 
 
 def test_registry_errors_if_types_overloaded():
@@ -87,11 +93,11 @@ def test_registry_correctly_maps_to_expected_type(delim):
     person = Person(name="Bob", age=36)
     book = Book(title="The Most Average Story of All Time", num_pages=500)
     assert (
-        registry.from_string(str(_Message("person", person, registry._msg_delim)))
+        registry.from_string(str(_Message(person, "person", registry._msg_delim)))
         == person
     )
     assert (
-        registry.from_string(str(_Message("book", book, registry._msg_delim))) == book
+        registry.from_string(str(_Message(book, "book", registry._msg_delim))) == book
     )
 
 
@@ -101,7 +107,7 @@ def test_registery_errors_if_type_key_not_recognized():
 
     with pytest.raises(ValueError, match="^No type of value .* registered$"):
         registry.from_string(
-            str(_Message("alien", Person(name="Grunk", age=5_000), registry._msg_delim))
+            str(_Message(Person(name="Grunk", age=5_000), "alien", registry._msg_delim))
         )
 
 
@@ -109,5 +115,5 @@ def test_registry_errors_if_type_key_is_missing():
     registry = SchemaRegistry("::")
     registry.register("person")(Person)
 
-    with pytest.raises(ValueError, match="Failed to find message header"):
+    with pytest.raises(ValueError, match="Failed to determine schema type"):
         registry.from_string("This string does not contain a delimiter")
