@@ -26,7 +26,7 @@
 
 import typing as t
 
-from pydantic import BaseModel, PositiveInt, Field
+from pydantic import BaseModel, Field, PositiveInt
 
 import smartsim._core.schemas.utils as _utils
 
