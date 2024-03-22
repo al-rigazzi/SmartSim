@@ -102,9 +102,7 @@ class DragonBackend:
         # dictionary maps hostname to step_id of
         # step being executed on it
         self._initialize_hosts()
-        # Suppress pylint error which only happens for Python 3.7
-        # pylint: disable-next=unsubscriptable-object
-        self._queued_steps: collections.OrderedDict[str, DragonRunRequest] = (
+        self._queued_steps: "collections.OrderedDict[str, DragonRunRequest]" = (
             collections.OrderedDict()
         )
         self._running_steps: t.List[str] = []
