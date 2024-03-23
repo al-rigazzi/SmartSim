@@ -40,7 +40,6 @@ from threading import RLock
 
 import zmq
 
-import smartsim._core.utils.helpers as _helpers
 from smartsim._core.launcher.dragon import dragonSockets
 from smartsim._core.schemas.types import NonEmptyStr
 
@@ -107,10 +106,8 @@ class DragonLauncher(WLMLauncher):
         self._dragon_head_socket = self._context.socket(zmq.REQ)
         self._dragon_head_socket.connect(address)
         try:
-            (
-                _helpers.start_with(DragonHandshakeRequest())
-                .then(self._send_request)
-                .then(_assert_schema_type(DragonHandshakeResponse))
+            _assert_schema_type(
+                self._send_request(DragonHandshakeRequest()), DragonHandshakeResponse
             )
             logger.debug(
                 f"Successful handshake with Dragon server at address {address}"
@@ -206,11 +203,7 @@ class DragonLauncher(WLMLauncher):
             if address is not None:
                 server = dragonSockets.as_server(launcher_socket)
                 logger.debug(f"Listening to {socket_addr}")
-                request = (
-                    _helpers.start_with(server.recv())
-                    .then(_assert_schema_type(DragonBootstrapRequest))
-                    .get_result()
-                )
+                request = _assert_schema_type(server.recv(), DragonBootstrapRequest)
 
                 dragon_head_address = request.address
                 logger.debug(f"Connecting launcher to {dragon_head_address}")
@@ -270,8 +263,8 @@ class DragonLauncher(WLMLauncher):
             run_args = step.run_settings.run_args
             env = step.run_settings.env_vars
             nodes = int(run_args.get("nodes", None) or 1)
-            response = (
-                _helpers.start_with(
+            response = _assert_schema_type(
+                self._send_request(
                     DragonRunRequest(
                         exe=cmd[0],
                         exe_args=cmd[1:],
@@ -283,10 +276,8 @@ class DragonLauncher(WLMLauncher):
                         output_file=out,
                         error_file=err,
                     )
-                )
-                .then(self._send_request)
-                .then(_assert_schema_type(DragonRunResponse))
-                .get_result()
+                ),
+                DragonRunResponse,
             )
             step_id = task_id = str(response.step_id)
         elif isinstance(step, LocalStep):
@@ -321,10 +312,8 @@ class DragonLauncher(WLMLauncher):
 
         stepmap = self.step_mapping[step_name]
         step_id = str(stepmap.step_id)
-        (
-            _helpers.start_with(DragonStopRequest(step_id=step_id))
-            .then(self._send_request)
-            .then(_assert_schema_type(DragonStopResponse))
+        _assert_schema_type(
+            self._send_request(DragonStopRequest(step_id=step_id)), DragonStopResponse
         )
 
         _, step_info = self.get_step_update([step_name])[0]
@@ -346,11 +335,9 @@ class DragonLauncher(WLMLauncher):
         if not self.is_connected:
             raise LauncherError("Launcher is not connected to Dragon.")
 
-        response = (
-            _helpers.start_with(DragonUpdateStatusRequest(step_ids=step_ids))
-            .then(self._send_request)
-            .then(_assert_schema_type(DragonUpdateStatusResponse))
-            .get_result()
+        response = _assert_schema_type(
+            self._send_request(DragonUpdateStatusRequest(step_ids=step_ids)),
+            DragonUpdateStatusResponse,
         )
 
         # create StepInfo objects to return
@@ -383,7 +370,7 @@ class DragonLauncher(WLMLauncher):
         if (socket := self._dragon_head_socket) is None:
             raise LauncherError("Launcher is not connected to Dragon")
 
-        return self.send_req_as_json(socket, request, flags)
+        return self.send_req_with_socket(socket, request, flags)
 
     def __str__(self) -> str:
         return "Dragon"
@@ -422,7 +409,7 @@ class DragonLauncher(WLMLauncher):
             return dragon_envs
 
     @staticmethod
-    def send_req_as_json(
+    def send_req_with_socket(
         socket: zmq.Socket[t.Any], request: DragonRequest, flags: int = 0
     ) -> DragonResponse:
         client = dragonSockets.as_client(socket)
@@ -432,19 +419,16 @@ class DragonLauncher(WLMLauncher):
             return client.recv()
 
 
-def _assert_schema_type(typ: t.Type[_SchemaT], /) -> t.Callable[[object], _SchemaT]:
-    def _inner(obj: object) -> _SchemaT:
-        if not isinstance(obj, typ):
-            raise TypeError("Expected schema of type `{typ}`, but got {type(obj)}")
-        return obj
-
-    return _inner
+def _assert_schema_type(obj: object, typ: t.Type[_SchemaT], /) -> _SchemaT:
+    if not isinstance(obj, typ):
+        raise TypeError("Expected schema of type `{typ}`, but got {type(obj)}")
+    return obj
 
 
 def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -> None:
     try:
         with DRG_LOCK:
-            DragonLauncher.send_req_as_json(server_socket, DragonShutdownRequest())
+            DragonLauncher.send_req_with_socket(server_socket, DragonShutdownRequest())
     except zmq.error.ZMQError as e:
         logger.error(
             f"Could not send shutdown request to dragon server, ZMQ error: {e}"

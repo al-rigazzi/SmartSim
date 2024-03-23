@@ -35,7 +35,6 @@ from types import FrameType
 
 import zmq
 
-import smartsim._core.utils.helpers as _helpers
 from smartsim._core.launcher.dragon import dragonSockets
 from smartsim._core.launcher.dragon.dragonBackend import DragonBackend
 from smartsim._core.schemas import (
@@ -124,13 +123,8 @@ def main(args: argparse.Namespace) -> int:
         launcher_socket.connect(args.launching_address)
         client = dragonSockets.as_client(launcher_socket)
 
-        response = (
-            _helpers.start_with(DragonBootstrapRequest(address=dragon_head_address))
-            .then(client.send)
-            .then(lambda _: client.recv())
-            .get_result()
-        )
-
+        client.send(DragonBootstrapRequest(address=dragon_head_address))
+        response = client.recv()
         if not isinstance(response, DragonBootstrapResponse):
             raise ValueError(
                 "Could not receive connection confirmation from launcher. Aborting."
