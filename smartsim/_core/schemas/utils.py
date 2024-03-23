@@ -1,9 +1,15 @@
+import dataclasses
 import typing as t
 
 import pydantic
 import pydantic.dataclasses
 
+if t.TYPE_CHECKING:
+    from zmq.sugar.socket import Socket
+
 _SchemaT = t.TypeVar("_SchemaT", bound=pydantic.BaseModel)
+_SendT = t.TypeVar("_SendT", bound=pydantic.BaseModel)
+_RecvT = t.TypeVar("_RecvT", bound=pydantic.BaseModel)
 
 
 @t.final
@@ -79,3 +85,16 @@ class SchemaRegistry(t.Generic[_SchemaT]):
     @staticmethod
     def _from_message(msg: _Message[_SchemaT]) -> _SchemaT:
         return msg.payload
+
+
+@dataclasses.dataclass(frozen=True)
+class SocketSchemaTranslator(t.Generic[_SendT, _RecvT]):
+    socket: "Socket[t.Any]"
+    _send_registry: SchemaRegistry[_SendT]
+    _recv_registry: SchemaRegistry[_RecvT]
+
+    def send(self, schema: _SendT, flags: int = 0) -> None:
+        self.socket.send_string(self._send_registry.to_string(schema), flags)
+
+    def recv(self) -> _RecvT:
+        return self._recv_registry.from_string(self.socket.recv_string())

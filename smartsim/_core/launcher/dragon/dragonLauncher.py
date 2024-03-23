@@ -41,8 +41,7 @@ from threading import RLock
 import zmq
 
 import smartsim._core.utils.helpers as _helpers
-from smartsim._core.schemas.dragonRequests import request_registry
-from smartsim._core.schemas.dragonResponses import response_registry
+from smartsim._core.launcher.dragon import dragonSockets
 from smartsim._core.schemas.types import NonEmptyStr
 
 from ....error import LauncherError
@@ -205,22 +204,17 @@ class DragonLauncher(WLMLauncher):
                 )
 
             if address is not None:
+                server = dragonSockets.as_server(launcher_socket)
                 logger.debug(f"Listening to {socket_addr}")
                 request = (
-                    _helpers.start_with(launcher_socket.recv_string())
-                    .then(request_registry.from_string)
+                    _helpers.start_with(server.recv())
                     .then(_assert_schema_type(DragonBootstrapRequest))
                     .get_result()
                 )
 
                 dragon_head_address = request.address
                 logger.debug(f"Connecting launcher to {dragon_head_address}")
-
-                (
-                    _helpers.start_with(DragonBootstrapResponse())
-                    .then(response_registry.to_string)
-                    .then(launcher_socket.send_string)
-                )
+                server.send(DragonBootstrapResponse())
 
                 launcher_socket.close()
                 self._set_timeout(self._timeout)
@@ -431,16 +425,11 @@ class DragonLauncher(WLMLauncher):
     def send_req_as_json(
         socket: zmq.Socket[t.Any], request: DragonRequest, flags: int = 0
     ) -> DragonResponse:
+        client = dragonSockets.as_client(socket)
         with DRG_LOCK:
             logger.debug(f"Sending {type(request).__name__}: {request}")
-            return (
-                _helpers.start_with(request)
-                .then(request_registry.to_string)
-                .then(lambda req: socket.send_string(req, flags))
-                .then(lambda _: socket.recv_string())
-                .then(response_registry.from_string)
-                .get_result()
-            )
+            client.send(request, flags)
+            return client.recv()
 
 
 def _assert_schema_type(typ: t.Type[_SchemaT], /) -> t.Callable[[object], _SchemaT]:
