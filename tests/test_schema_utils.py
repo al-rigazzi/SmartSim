@@ -24,12 +24,17 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import collections
 import json
 
 import pydantic
 import pytest
 
-from smartsim._core.schemas.utils import SchemaRegistry, _Message
+from smartsim._core.schemas.utils import (
+    SchemaRegistry,
+    SocketSchemaTranslator,
+    _Message,
+)
 
 # The tests in this file belong to the group_b group
 pytestmark = pytest.mark.group_b
@@ -40,9 +45,25 @@ class Person(pydantic.BaseModel):
     age: int
 
 
+class Dog(pydantic.BaseModel):
+    name: str
+    age: int
+
+
 class Book(pydantic.BaseModel):
     title: str
     num_pages: int
+
+
+def test_equivalent_messages_are_equivalent():
+    book = Book(title="A Story", num_pages=250)
+    msg_1 = _Message(book, "header", "::")
+    msg_2 = _Message(book, "header", "::")
+
+    assert msg_1 is not msg_2
+    assert msg_1 == msg_2
+    assert str(msg_1) == str(msg_2)
+    assert msg_1 == _Message.from_str(str(msg_1), "::", Book)
 
 
 def test_schema_registrartion():
@@ -79,6 +100,24 @@ def test_schema_to_string(delim):
         _Message(person, "person", registry._msg_delim)
     )
     assert registry.to_string(book) == str(_Message(book, "book", registry._msg_delim))
+
+
+def test_schemas_with_same_shape_are_mapped_correctly():
+    registry = SchemaRegistry()
+    registry.register("person")(Person)
+    registry.register("dog")(Dog)
+
+    person = Person(name="Mark", age=34)
+    dog = Dog(name="Fido", age=5)
+
+    parsed_person = registry.from_string(registry.to_string(person))
+    parsed_dog = registry.from_string(registry.to_string(dog))
+
+    assert isinstance(parsed_person, Person)
+    assert isinstance(parsed_dog, Dog)
+
+    assert parsed_person == person
+    assert parsed_dog == dog
 
 
 def test_registry_errors_if_types_overloaded():
@@ -146,3 +185,60 @@ def test_registry_errors_if_type_key_is_missing():
 
     with pytest.raises(ValueError, match="Failed to determine schema type"):
         registry.from_string("This string does not contain a delimiter")
+
+
+class MockSocket:
+    def __init__(self, send_queue, recv_queue):
+        self.send_queue = send_queue
+        self.recv_queue = recv_queue
+
+    def send_string(self, str_, *_args, **_kwargs):
+        assert isinstance(str_, str)
+        self.send_queue.append(str_)
+
+    def recv_string(self, *_args, **_kwargs):
+        str_ = self.recv_queue.popleft()
+        assert isinstance(str_, str)
+        return str_
+
+
+class Request(pydantic.BaseModel): ...
+
+
+class Response(pydantic.BaseModel): ...
+
+
+def test_socket_schema_translator_uses_schema_registries():
+    server_to_client = collections.deque()
+    client_to_server = collections.deque()
+
+    server_socket = MockSocket(server_to_client, client_to_server)
+    client_socket = MockSocket(client_to_server, server_to_client)
+
+    req_reg = SchemaRegistry()
+    res_reg = SchemaRegistry()
+
+    req_reg.register("message")(Request)
+    res_reg.register("message")(Response)
+
+    server = SocketSchemaTranslator(server_socket, res_reg, req_reg)
+    client = SocketSchemaTranslator(client_socket, req_reg, res_reg)
+
+    # Check sockets are able to communicate seamlessly with schemas only
+    client.send(Request())
+    assert len(client_to_server) == 1
+    req = server.recv()
+    assert len(client_to_server) == 0
+    assert isinstance(req, Request)
+
+    server.send(Response())
+    assert len(server_to_client) == 1
+    res = client.recv()
+    assert len(server_to_client) == 0
+    assert isinstance(res, Response)
+
+    # Ensure users cannot send unexpected schemas
+    with pytest.raises(TypeError, match="Unregistered schema"):
+        client.send(Response())
+    with pytest.raises(TypeError, match="Unregistered schema"):
+        server.send(Request())
