@@ -74,7 +74,7 @@ test_port = CONFIG.test_port
 test_account = CONFIG.test_account or ""
 test_batch_resources: t.Dict[t.Any,t.Any] = CONFIG.test_batch_resources
 test_output_dirs = 0
-test_mpi = None if not CONFIG.test_no_mpi else False
+test_mpi = None if not CONFIG.test_no_mpi else ""
 
 # Fill this at runtime if needed
 test_hostlist = None
@@ -166,7 +166,7 @@ def build_mpi_app() -> str:
     if cc is None:
         cc = shutil.which("gcc")
     if cc is None:
-        return False
+        return ""
 
     path_to_app =  FileUtils().get_test_conf_path("mpi")
     path_to_out = os.path.join(test_output_root, "mpi_app")
@@ -200,7 +200,6 @@ def mpi_app_path() -> str:
     global test_mpi
     if test_mpi is None:
         test_mpi = build_mpi_app()
-    # Check path is not an empty string
     return test_mpi
 
 def get_hostlist() -> t.Optional[t.List[str]]:

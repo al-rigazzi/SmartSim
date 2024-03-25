@@ -109,21 +109,28 @@ def run(
     while not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
         try:
             req: str = str(dragon_head_socket.recv_json())
-            resp = dragon_backend.process_request(
-                request_serializer.deserialize_from_json(req)
-            )
-            print(f"Received request {req}\nSending response {resp}", flush=True)
-            dragon_head_socket.send_json(response_serializer.serialize_to_json(resp))
+            print_req(req)
+        except zmq.Again:
             dragon_backend.print_status()
+            dragon_backend.update()
+            continue
+
+        resp = dragon_backend.process_request(
+            request_serializer.deserialize_from_json(req)
+        )
+        print(resp)
+        try:
+            dragon_head_socket.send_json(response_serializer.serialize_to_json(resp))
+        except zmq.Again:
+            logger.error("Could not send response back to launcher.")
+        finally:
+            dragon_backend.print_status()
+            dragon_backend.update()
             if not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
                 print(f"Listening to {dragon_head_address}", flush=True)
             else:
                 print("Shutdown has been requested", flush=True)
                 break
-        except zmq.Again:
-            pass
-        finally:
-            dragon_backend.update()
 
 
 def main(args: argparse.Namespace, zmq_context: zmq.Context[t.Any]) -> int:

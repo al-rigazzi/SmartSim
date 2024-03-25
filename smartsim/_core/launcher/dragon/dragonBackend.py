@@ -130,7 +130,7 @@ class DragonBackend:
             self._hosts: t.List[str] = sorted(
                 Node(node).hostname for node in System().nodes
             )
-            self._free_hosts: t.List[str] = self._hosts.copy()
+            self._free_hosts: t.Deque[str] = collections.deque(self._hosts)
             self._allocated_hosts: t.Dict[str, str] = {}
 
     def _request_is_satisfiable(self, request: DragonRunRequest) -> bool:
@@ -152,7 +152,7 @@ class DragonBackend:
                 return None
             to_allocate = []
             for _ in range(num_hosts):
-                host = self._free_hosts.pop(0)
+                host = self._free_hosts.popleft()
                 self._allocated_hosts[host] = step_id
                 to_allocate.append(host)
             return to_allocate
