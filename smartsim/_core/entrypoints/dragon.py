@@ -38,11 +38,7 @@ import zmq
 
 from smartsim._core.launcher.dragon import dragonSockets
 from smartsim._core.launcher.dragon.dragonBackend import DragonBackend
-from smartsim._core.schemas import (
-    DragonBootstrapRequest,
-    DragonBootstrapResponse,
-    DragonShutdownResponse,
-)
+from smartsim._core.schemas import DragonBootstrapRequest, DragonBootstrapResponse
 from smartsim._core.utils.network import get_best_interface_and_address
 from smartsim.log import get_logger
 
@@ -126,14 +122,14 @@ def run(
             server.send(resp)
         except zmq.Again:
             logger.error("Could not send response back to launcher.")
-        finally:
-            dragon_backend.print_status()
-            dragon_backend.update()
-            if not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
-                print(f"Listening to {dragon_head_address}", flush=True)
-            else:
-                print("Shutdown has been requested", flush=True)
-                break
+
+        dragon_backend.print_status()
+        dragon_backend.update()
+        if not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
+            print(f"Listening to {dragon_head_address}", flush=True)
+        else:
+            print("Shutdown has been requested", flush=True)
+            break
 
 
 def main(args: argparse.Namespace, zmq_context: zmq.Context[t.Any]) -> int:

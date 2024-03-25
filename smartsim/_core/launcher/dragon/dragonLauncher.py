@@ -225,13 +225,14 @@ class DragonLauncher(WLMLauncher):
                 logger.debug(f"Listening to {socket_addr}")
                 request = _assert_schema_type(server.recv(), DragonBootstrapRequest)
 
-                dragon_head_address = request.address
-                logger.debug(f"Connecting launcher to {dragon_head_address}")
-                server.send(DragonBootstrapResponse(dragon_pid=self._dragon_head_process.pid))
+                logger.debug(f"Connecting launcher to {request.address}")
+                server.send(
+                    DragonBootstrapResponse(dragon_pid=self._dragon_head_process.pid)
+                )
 
                 launcher_socket.close()
                 self._set_timeout(self._timeout)
-                self._handshake(dragon_head_address)
+                self._handshake(request.address)
 
                 # Only the launcher which started the server is
                 # responsible of it, that's why we register the
@@ -249,6 +250,7 @@ class DragonLauncher(WLMLauncher):
                     )
             else:
                 # TODO parse output file
+                log_dragon_outputs()
                 raise LauncherError("Could not receive address of Dragon head process")
 
     # RunSettings types supported by this launcher
