@@ -36,11 +36,13 @@ from types import FrameType
 
 import zmq
 
-import smartsim._core.utils.helpers as _helpers
+from smartsim._core.launcher.dragon import dragonSockets
 from smartsim._core.launcher.dragon.dragonBackend import DragonBackend
-from smartsim._core.schemas import DragonBootstrapRequest, DragonBootstrapResponse
-from smartsim._core.schemas.dragonRequests import request_serializer
-from smartsim._core.schemas.dragonResponses import response_serializer
+from smartsim._core.schemas import (
+    DragonBootstrapRequest,
+    DragonBootstrapResponse,
+    DragonShutdownResponse,
+)
 from smartsim._core.utils.network import get_best_interface_and_address
 from smartsim.log import get_logger
 
@@ -105,22 +107,23 @@ def run(
     dragon_head_socket.bind(dragon_head_address)
     dragon_backend = DragonBackend(pid=dragon_pid)
 
+    server = dragonSockets.as_server(dragon_head_socket)
+
     print(f"Listening to {dragon_head_address}")
     while not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
         try:
-            req: str = str(dragon_head_socket.recv_json())
+            req = server.recv()
             print_req(req)
         except zmq.Again:
             dragon_backend.print_status()
             dragon_backend.update()
             continue
 
-        resp = dragon_backend.process_request(
-            request_serializer.deserialize_from_json(req)
-        )
-        print(resp)
+        resp = dragon_backend.process_request(req)
+
+        print(f"Sending response {resp}", flush=True)
         try:
-            dragon_head_socket.send_json(response_serializer.serialize_to_json(resp))
+            server.send(resp)
         except zmq.Again:
             logger.error("Could not send response back to launcher.")
         finally:
@@ -150,17 +153,10 @@ def main(args: argparse.Namespace, zmq_context: zmq.Context[t.Any]) -> int:
 
         launcher_socket = zmq_context.socket(zmq.REQ)
         launcher_socket.connect(args.launching_address)
+        client = dragonSockets.as_client(launcher_socket)
 
-        response = (
-            _helpers.start_with(DragonBootstrapRequest(address=dragon_head_address))
-            .then(request_serializer.serialize_to_json)
-            .then(launcher_socket.send_json)
-            .then(lambda _: launcher_socket.recv_json())
-            .then(str)
-            .then(response_serializer.deserialize_from_json)
-            .get_result()
-        )
-
+        client.send(DragonBootstrapRequest(address=dragon_head_address))
+        response = client.recv()
         if not isinstance(response, DragonBootstrapResponse):
             raise ValueError(
                 "Could not receive connection confirmation from launcher. Aborting."
