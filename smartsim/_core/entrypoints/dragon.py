@@ -84,14 +84,6 @@ def print_summary(network_interface: str, ip_address: str) -> None:
         )
 
 
-def print_req(req: str) -> None:
-    if "__request_type__" in req:
-        req_dict: t.Dict[str, t.Any] = json.loads(req)
-        print(f"Received request: {req_dict['__request_type__']}", flush=True)
-    else:
-        print("Received request with no type.")
-
-
 def run(
     dragon_head_address: str, dragon_pid: int, zmq_context: zmq.Context[t.Any]
 ) -> None:
@@ -109,7 +101,7 @@ def run(
     while not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
         try:
             req = server.recv()
-            print_req(req)
+            print(f"Received request {req}", flush=True)
         except zmq.Again:
             dragon_backend.print_status()
             dragon_backend.update()
