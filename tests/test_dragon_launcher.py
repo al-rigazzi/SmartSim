@@ -31,7 +31,6 @@ class MockSocket:
 
     def recv_json(self) -> str:
         dbr = DragonBootstrapRequest(address=self._bind_address)
-        # dbr.__request_type__ = "bootstrap"
         return dbr.json()
 
     def close(self) -> None: ...
