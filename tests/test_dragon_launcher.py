@@ -6,6 +6,9 @@ from smartsim._core.launcher.dragon.dragonLauncher import DragonLauncher
 from smartsim._core.schemas.dragonRequests import DragonBootstrapRequest
 from smartsim.error.errors import LauncherError
 
+# The tests in this file belong to the group_a group
+pytestmark = pytest.mark.group_a
+
 
 class MockPopen:
     def __init__(self, *args: t.Any, **kwargs: t.Any) -> None: ...
