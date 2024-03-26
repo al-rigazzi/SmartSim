@@ -32,13 +32,19 @@ class MockSocket:
     def bind(self, addr: str) -> None:
         self._bind_address = addr
 
-    def recv_json(self) -> str:
+    # def recv_json(self) -> str:
+    #     dbr = DragonBootstrapRequest(address=self._bind_address)
+    #     return dbr.json()
+
+    def recv_string(self) -> str:
         dbr = DragonBootstrapRequest(address=self._bind_address)
-        return dbr.json()
+        return f"bootstrap|{dbr.json()}"
 
     def close(self) -> None: ...
 
     def send_json(self, json: str) -> None: ...
+
+    def send_string(*args, **kwargs) -> None: ...
 
     @property
     def bind_address(self) -> str:
@@ -58,10 +64,6 @@ def test_dragon_connect_bind_address(monkeypatch: pytest.MonkeyPatch, test_dir: 
         ctx.setattr(
             "smartsim._core.launcher.dragon.dragonLauncher.DragonLauncher._handshake",
             lambda self, address: ...,
-        )
-        ctx.setattr(
-            "smartsim._core.schemas.utils.SchemaSerializer.mapping_to_schema",
-            lambda self, obj: DragonBootstrapRequest.parse_obj(obj),
         )
 
         mock_socket = MockSocket()
