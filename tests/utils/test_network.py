@@ -2,6 +2,9 @@ import pytest
 
 from smartsim._core.utils.network import find_free_port
 
+# The tests in this file belong to the group_a group
+pytestmark = pytest.mark.group_a
+
 
 def test_find_free_port_no_start():
     """Test that a free port is identified and returned when no
