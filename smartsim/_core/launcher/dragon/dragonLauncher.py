@@ -129,7 +129,7 @@ class DragonLauncher(WLMLauncher):
         if not self.is_connected:
             raise LauncherError("Could not connect to Dragon server")
 
-    # pylint: disable-next=too-many-statements
+    # pylint: disable-next=too-many-statements,too-many-locals
     def _connect_to_dragon(self, path: t.Union[str, "os.PathLike[str]"]) -> None:
         with DRG_LOCK:
             # TODO use manager instead
