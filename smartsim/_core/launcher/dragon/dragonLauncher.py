@@ -42,7 +42,6 @@ from threading import RLock
 import zmq
 
 from smartsim._core.launcher.dragon import dragonSockets
-from smartsim._core.schemas.types import NonEmptyStr
 
 from ....error import LauncherError
 from ....log import get_logger
@@ -64,7 +63,7 @@ from ...schemas import (
     DragonUpdateStatusRequest,
     DragonUpdateStatusResponse,
 )
-from ...utils.network import get_best_interface_and_address
+from ...utils.network import find_free_port, get_best_interface_and_address
 from ..launcher import WLMLauncher
 from ..step import DragonStep, LocalStep, Step
 from ..stepInfo import StepInfo
@@ -134,7 +133,7 @@ class DragonLauncher(WLMLauncher):
         if not self.is_connected:
             raise LauncherError("Could not connect to Dragon server")
 
-    # pylint: disable-next=too-many-statements
+    # pylint: disable-next=too-many-statements,too-many-locals
     def _connect_to_dragon(self, path: t.Union[str, "os.PathLike[str]"]) -> None:
         with DRG_LOCK:
             # TODO use manager instead
@@ -179,9 +178,12 @@ class DragonLauncher(WLMLauncher):
             if address is not None:
                 self._set_timeout(self._startup_timeout)
                 launcher_socket = self._context.socket(zmq.REP)
-                # TODO find first available port >= 5995
-                socket_addr = f"tcp://{address}:5995"
+
+                # find first available port >= 5995
+                port = find_free_port(start=5995)
+                socket_addr = f"tcp://{address}:{port}"
                 logger.debug(f"Binding launcher to {socket_addr}")
+
                 launcher_socket.bind(socket_addr)
                 cmd += ["+launching_address", socket_addr]
 
@@ -375,7 +377,7 @@ class DragonLauncher(WLMLauncher):
                     msg += response.error_message
                 raise LauncherError(msg)
 
-            status, ret_codes = response.statuses[NonEmptyStr(step_id)]
+            status, ret_codes = response.statuses[step_id]
             if ret_codes:
                 grp_ret_code = min(ret_codes)
                 if any(ret_codes):
