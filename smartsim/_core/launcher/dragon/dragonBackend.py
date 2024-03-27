@@ -115,11 +115,14 @@ class DragonBackend:
         print(host_string + f" available for execution: {self._hosts}")
 
     def print_status(self) -> None:
-        print(f"{self._updates}: System hosts: ", self._hosts)
-        print(f"{self._updates}: Free hosts: ", self._free_hosts)
-        print(f"{self._updates}: Allocated hosts: ", self._allocated_hosts)
-        print(f"{self._updates}: Running steps: ", self._running_steps)
-        print(f"{self._updates}: Group infos: ", self._group_infos)
+        print("\n-----------------------Launcher Status-----------------------")
+        print(f"| {self._updates}: System hosts: ", self._hosts)
+        print(f"| {self._updates}: Free hosts: ", list(self._free_hosts))
+        print(f"| {self._updates}: Allocated hosts: ", self._allocated_hosts)
+        print(f"| {self._updates}: Running steps: ", self._running_steps)
+        print(f"| {self._updates}: Group infos: ", self._group_infos)
+        print(f"| {self._updates}: There are {len(self._queued_steps)} queued steps")
+        print("-------------------------------------------------------------\n")
 
     @property
     def should_shutdown(self) -> bool:
@@ -173,7 +176,7 @@ class DragonBackend:
 
         step_id = self._get_new_id()
         if not self._request_is_satisfiable(request):
-            message = f"Cannot satisfy request. Requested {request.nodes}, "
+            message = f"Cannot satisfy request. Requested {request.nodes} nodes, "
             message += f"but only {len(self._hosts)} nodes are available."
             self._group_infos[step_id] = ProcessGroupInfo(status=STATUS_FAILED)
             return DragonRunResponse(step_id=step_id, error_message=message)

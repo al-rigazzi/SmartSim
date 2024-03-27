@@ -101,15 +101,15 @@ def run(
     while not (dragon_backend.should_shutdown or SHUTDOWN_INITIATED):
         try:
             req = server.recv()
-            print(f"Received request {req}", flush=True)
+            print(f"Received {type(req).__name__} {req}", flush=True)
         except zmq.Again:
-            dragon_backend.print_status()
+            # dragon_backend.print_status()
             dragon_backend.update()
             continue
 
         resp = dragon_backend.process_request(req)
 
-        print(f"Sending response {resp}", flush=True)
+        print(f"Sending {type(resp).__name__} {resp}", flush=True)
         try:
             server.send(resp)
         except zmq.Again:
