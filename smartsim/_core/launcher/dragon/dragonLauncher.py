@@ -39,6 +39,7 @@ from pathlib import Path
 from threading import RLock
 
 import zmq
+import zmq.auth.thread
 
 from smartsim._core.launcher.dragon import dragonSockets
 from smartsim.error.errors import SmartSimError
@@ -97,13 +98,16 @@ class DragonLauncher(WLMLauncher):
         self._context.setsockopt(zmq.RCVTIMEO, value=self._timeout)
         self._dragon_head_socket: t.Optional[zmq.Socket[t.Any]] = None
         self._dragon_head_process: t.Optional[subprocess.Popen[bytes]] = None
+        self._authenticator: t.Optional[zmq.auth.thread.ThreadAuthenticator] = None
 
     @property
     def is_connected(self) -> bool:
         return self._dragon_head_socket is not None
 
     def _handshake(self, address: str) -> None:
-        self._dragon_head_socket = self._context.socket(zmq.REQ)
+        self._dragon_head_socket, self._authenticator = dragonSockets.get_secure_socket(
+            self._context, zmq.REQ, False, self._authenticator
+        )
         self._dragon_head_socket.connect(address)
         try:
             _assert_schema_type(
@@ -175,7 +179,10 @@ class DragonLauncher(WLMLauncher):
             launcher_socket: t.Optional[zmq.Socket[t.Any]] = None
             if address is not None:
                 self._set_timeout(self._startup_timeout)
-                launcher_socket = self._context.socket(zmq.REP)
+
+                launcher_socket, self._authenticator = dragonSockets.get_secure_socket(
+                    self._context, zmq.REP, True, self._authenticator
+                )
 
                 # find first available port >= 5995
                 port = find_free_port(start=5995)
@@ -234,6 +241,7 @@ class DragonLauncher(WLMLauncher):
                         _dragon_cleanup,
                         server_socket=server_socket,
                         server_process_pid=server_process_pid,
+                        server_authenticator=self._authenticator,
                     )
             else:
                 # TODO parse output file
@@ -435,16 +443,41 @@ def _assert_schema_type(obj: object, typ: t.Type[_SchemaT], /) -> _SchemaT:
     return obj
 
 
-def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -> None:
+def _dragon_cleanup(
+    server_socket: zmq.Socket[t.Any],
+    server_process_pid: int,
+    server_authenticator: t.Optional[zmq.auth.thread.ThreadAuthenticator] = None,
+) -> None:
+    """Clean up resources used by the launcher.
+    :param server_socket: Socket used to connect to dragon environment
+    :type server_socket: zmq.Socket
+    :param server_process_pid: Process ID of the dragon entrypoint
+    :type server_process_pid: int
+    :param server_authenticator: (optional) Authenticator used to secure sockets
+    :type server_authenticator: Optional[zmq.auth.thread.ThreadAuthenticator]
+    """
+
+    # NOTE: Usage of print here is on purpose - logger file streams are
+    # closed when this method is called. Print avoids additional I/O errors
+
     try:
         with DRG_LOCK:
             DragonLauncher.send_req_with_socket(server_socket, DragonShutdownRequest())
     except zmq.error.ZMQError as e:
-        logger.error(
-            f"Could not send shutdown request to dragon server, ZMQ error: {e}"
-        )
-    finally:
+        print(f"Could not send shutdown request to dragon server, ZMQ error: {e}")
+
+    try:
+        if server_authenticator is not None:
+            server_authenticator.stop()
+    except Exception:
+        print("Authenticator shutdown error")
+
+    try:
         os.kill(server_process_pid, signal.SIGINT)
+    except ProcessLookupError:
+        print(f"Process {server_process_pid} not found")
+    except Exception:
+        print(f"Process {server_process_pid} shutdown error")
 
 
 def _resolve_dragon_path(fallback: t.Union[str, "os.PathLike[str]"]) -> Path:

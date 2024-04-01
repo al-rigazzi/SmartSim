@@ -34,6 +34,7 @@ import typing as t
 from types import FrameType
 
 import zmq
+import zmq.auth.thread
 
 from smartsim._core.launcher.dragon import dragonSockets
 from smartsim._core.launcher.dragon.dragonBackend import DragonBackend
@@ -59,6 +60,7 @@ def handle_signal(signo: int, _frame: t.Optional[FrameType]) -> None:
 
 
 context = zmq.Context()
+authenticator: t.Optional[zmq.auth.thread.ThreadAuthenticator] = None
 
 """
 Dragon server entrypoint script
@@ -88,8 +90,13 @@ def print_summary(network_interface: str, ip_address: str) -> None:
 
 def run(dragon_head_address: str) -> None:
     global SHUTDOWN_INITIATED  # pylint: disable=global-statement
+    global authenticator  # pylint: disable=global-statement
     print(f"Opening socket {dragon_head_address}")
-    dragon_head_socket = context.socket(zmq.REP)
+
+    dragon_head_socket, authenticator = dragonSockets.get_secure_socket(
+        context, zmq.REP, True, authenticator
+    )
+
     dragon_head_socket.bind(dragon_head_address)
     dragon_backend = DragonBackend()
 
@@ -107,6 +114,8 @@ def run(dragon_head_address: str) -> None:
 
 
 def main(args: argparse.Namespace) -> int:
+    global authenticator  # pylint: disable=global-statement
+
     interface, address = get_best_interface_and_address()
     if not interface:
         raise ValueError("Net interface could not be determined")
@@ -119,7 +128,9 @@ def main(args: argparse.Namespace) -> int:
         else:
             dragon_head_address += ":5555"
 
-        launcher_socket = context.socket(zmq.REQ)
+        launcher_socket, authenticator = dragonSockets.get_secure_socket(
+            context, zmq.REQ, False, authenticator
+        )
         launcher_socket.connect(args.launching_address)
         client = dragonSockets.as_client(launcher_socket)
 
