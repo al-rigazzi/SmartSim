@@ -259,8 +259,7 @@ def test_telemetry_cooldown(
 
 def test_key_path_unset(monkeypatch: pytest.MonkeyPatch):
     """Ensure that the default value of the key path meets expectations"""
-    if os.getenv("SMARTSIM_KEY_PATH", None):
-        monkeypatch.delenv("SMARTSIM_KEY_PATH")
+    monkeypatch.delenv("SMARTSIM_KEY_PATH", raising=False)
 
     config = Config()
 

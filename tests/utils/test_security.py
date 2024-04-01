@@ -1,10 +1,41 @@
+# BSD 2-Clause License
+#
+# Copyright (c) 2021-2024, Hewlett Packard Enterprise
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
 import pathlib
 import stat
 
 import pytest
+from sympy import public
 
 from smartsim._core.config.config import get_config
 from smartsim._core.utils.security import KeyManager, _KeyLocator, _KeyPermissions
+
+# The tests in this file belong to the group_a group
+pytestmark = pytest.mark.group_a
 
 
 @pytest.mark.parametrize(
@@ -87,7 +118,7 @@ def test_key_manager_dir_preparation(
             assert locator.private_dir.exists()
 
 
-def test_key_manager_get_existing_keys_only(
+def test_key_manager_get_existing_keys_only_no_keys_found(
     test_dir: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ensure the key manager cannot load keys when
@@ -103,6 +134,35 @@ def test_key_manager_get_existing_keys_only(
 
         assert server_keys.empty
         assert client_keys.empty
+
+
+def test_key_manager_get_existing_keys_only_existing(
+    test_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure the key manager can load keys when
+    they exist from a previous call."""
+    with monkeypatch.context() as ctx:
+        ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
+
+        cfg = get_config()
+
+        # use a KeyManager to create some keys
+        km = KeyManager(cfg, as_server=True, as_client=True)
+        old_server_keys, old_client_keys = km.get_keys(create=True)
+
+        # create a new KM to verify keys reload
+        km = KeyManager(cfg, as_server=True, as_client=True)
+
+        # use create=True to manifest any bugs missing existing keys
+        server_keys, client_keys = km.get_keys(create=True)
+
+        # ensure we loaded something
+        assert not server_keys.empty
+        assert not client_keys.empty
+
+        # and show the old keys were reloaded from disk
+        assert server_keys == old_server_keys
+        assert client_keys == old_client_keys
 
 
 def test_key_manager_get_or_create_keys_default(
@@ -148,26 +208,36 @@ def test_key_manager_server_context(
         assert len(client_keyset.private) == 0
 
 
+@pytest.mark.parametrize(
+    "as_server, as_client",
+    [
+        pytest.param(False, True, id="as-client"),
+        pytest.param(True, False, id="as-server"),
+        pytest.param(True, True, id="as-both"),
+        pytest.param(False, False, id="public-only"),
+    ],
+)
 def test_key_manager_client_context(
-    test_dir: str, monkeypatch: pytest.MonkeyPatch
+    as_server: bool,
+    as_client: bool,
+    test_dir: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ensure the key manager does not load private client
-    keys when the context is set to client=True"""
+    """Ensure the key manager loads the correct keys
+    when passed `as_server=True` and `as_client=True`"""
     with monkeypatch.context() as ctx:
         ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
 
         cfg = get_config()
-        km = KeyManager(cfg, as_client=True)
+        km = KeyManager(cfg, as_server=as_server, as_client=as_client)
 
         server_keyset, client_keyset = km.get_keys()
 
-        # as_client=True returns pub/priv client keys...
-        assert len(server_keyset.public) > 0
-        assert len(server_keyset.private) == 0
+        assert bool(server_keyset.public) == True
+        assert bool(server_keyset.private) == as_server
 
-        # e=True returns only public server key
-        assert len(client_keyset.public) > 0
-        assert len(client_keyset.private) > 0
+        assert bool(client_keyset.public) == True
+        assert bool(client_keyset.private) == as_client
 
 
 def test_key_manager_applied_permissions(

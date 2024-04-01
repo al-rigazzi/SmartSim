@@ -1,6 +1,6 @@
 # BSD 2-Clause License
 #
-# Copyright (c) 2021-2023, Hewlett Packard Enterprise
+# Copyright (c) 2021-2024, Hewlett Packard Enterprise
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,6 +27,7 @@
 
 import dataclasses
 import pathlib
+import stat
 import typing as t
 from enum import IntEnum
 
@@ -39,11 +40,11 @@ from smartsim._core.config.config import Config
 class _KeyPermissions(IntEnum):
     """Permissions used by KeyManager"""
 
-    OWNER_RW = 0o600
+    OWNER_RW = stat.S_IRUSR | stat.S_IWUSR
     """Permissions allowing owner to r/w"""
-    OWNER_FULL = 0o700
+    OWNER_FULL = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
     """permissions allowing owner to r/w/x"""
-    WORLD_R = 0o744
+    WORLD_R = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IROTH | stat.S_IRGRP
     """permissions allowing world to read"""
 
 
@@ -110,7 +111,7 @@ class _KeyLocator:
         """Flag indicating if public and private keys are persisted separately"""
 
         self._category = category
-        """(optional) Category name used to further separate key locations"""
+        """Category name used to further separate key locations"""
 
     @property
     def public_dir(self) -> pathlib.Path:
@@ -136,7 +137,7 @@ class _KeyLocator:
     def public(self) -> pathlib.Path:
         """Full target path of the public key file"""
         # combine the root and key type (e.g. /foo/bar + /server)
-        path = self._key_root_dir / self._category  # self._filename
+        path = self._key_root_dir / self._category
         # combine the pub/priv key subdir if necessary (e.g. /foo/bar + /pub)
         if self._separate_keys:
             path = path / self._public_subdir
@@ -175,20 +176,14 @@ class KeyManager:
         self._as_client = as_client
         """Set to `True` to return keys appropriate for the client context"""
 
-        self._server_base = "server"
-        """The `category` directory for persisting server keys. Results in
-        key path such as <key_root>/server/pub/curve.key"""
-
-        self._client_base = "client"
-        """The `category` directory for persisting client keys. Results in
-        key path such as <key_root>/client/pub/curve.key"""
-
         key_dir = pathlib.Path(config.smartsim_key_path).resolve()
 
-        self._server_locator = _KeyLocator(key_dir, "smartsim", self._server_base)
+        # Results in key path such as <key_root>/server/pub/smartsim.key
+        self._server_locator = _KeyLocator(key_dir, "smartsim", "server")
         """The locator for producing the paths to store server key files"""
 
-        self._client_locator = _KeyLocator(key_dir, "smartsim", self._client_base)
+        # Results in key path such as <key_root>/client/pub/smartsim.key
+        self._client_locator = _KeyLocator(key_dir, "smartsim", "client")
         """The locator for producing the paths to store client key files"""
 
     def create_directories(self) -> None:
@@ -254,7 +249,7 @@ class KeyManager:
         """Create and persist key files to disk"""
         for locator in [self._server_locator, self._client_locator]:
             # create keys in the private directory...
-            zmq.auth.create_certificates(locator.private.parent, locator.private.stem)
+            zmq.auth.create_certificates(locator.private_dir, locator.private.stem)
 
             # ...but move the public key out of the private subdirectory
             self._move_public_key(locator)
@@ -287,3 +282,8 @@ class KeyManager:
 
         # load keys to ensure they were persisted
         return self._load_keys()
+
+    @property
+    def client_keys_dir(self) -> pathlib.Path:
+        "Return the path to the client public keys directory"
+        return self._client_locator.public_dir
