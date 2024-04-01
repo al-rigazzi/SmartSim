@@ -186,28 +186,6 @@ def test_key_manager_get_or_create_keys_default(
         assert not key_set[1].private
 
 
-def test_key_manager_server_context(
-    test_dir: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Ensure the key manager does not load private client
-    keys when the context is set to server=True"""
-    with monkeypatch.context() as ctx:
-        ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
-
-        cfg = get_config()
-        km = KeyManager(cfg, as_server=True)
-
-        server_keyset, client_keyset = km.get_keys()
-
-        # as_server=True returns pub/priv server keys...
-        assert len(server_keyset.public) > 0
-        assert len(server_keyset.private) > 0
-
-        # as_server=True returns only public client key
-        assert len(client_keyset.public) > 0
-        assert len(client_keyset.private) == 0
-
-
 @pytest.mark.parametrize(
     "as_server, as_client",
     [
@@ -217,7 +195,7 @@ def test_key_manager_server_context(
         pytest.param(False, False, id="public-only"),
     ],
 )
-def test_key_manager_client_context(
+def test_key_manager_as_context(
     as_server: bool,
     as_client: bool,
     test_dir: str,
