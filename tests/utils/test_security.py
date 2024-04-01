@@ -38,60 +38,34 @@ from smartsim._core.utils.security import KeyManager, _KeyLocator, _KeyPermissio
 pytestmark = pytest.mark.group_a
 
 
-@pytest.mark.parametrize(
-    "separate_keys",
-    [
-        pytest.param(False, id="do not separate"),
-        pytest.param(True, id="do separate keys"),
-    ],
-)
-def test_keylocator_filename_resolution(separate_keys: bool, test_dir: str) -> None:
-    """Ensure the key locator resolves filenames as expected. The value
-    for `separate_keys` should not affect the file name"""
+def test_keylocator_filename_resolution(test_dir: str) -> None:
+    """Ensure the key locator resolves filenames as expected."""
     key_path = pathlib.Path(test_dir)
     key_category = "mycategory"
     key_file = "mykey"
-    locator = _KeyLocator(key_path, key_file, key_category, separate_keys=separate_keys)
+    locator = _KeyLocator(key_path, key_file, key_category)
 
     assert locator.public_filename == f"{key_file}.key", "public mismatch"
     assert locator.private_filename == f"{key_file}.key_secret", "private mismatch"
 
 
-def test_keylocator_separate_dir_resolution(test_dir: str) -> None:
-    """Ensure the key locator resolves paths as expected. The value
-    for `separate_keys` defaults to `True`"""
+def test_keylocator_dir_resolution(test_dir: str) -> None:
+    """Ensure the key locator resolves paths as expected."""
     key_path = pathlib.Path(test_dir)
     key_name = "test"
     key_category = "mycategory"
 
     locator = _KeyLocator(key_path, key_name, key_category)
 
-    # we expect a category AND pub/priv subdirectory
+    # we expect a category and pub/priv subdirectory
     exp_pub = pathlib.Path(f"{test_dir}/{key_category}/pub").resolve()
     assert str(locator.public_dir) == str(exp_pub)
 
     exp_priv = pathlib.Path(f"{test_dir}/{key_category}/priv").resolve()
     assert str(locator.private_dir) == str(exp_priv)
 
-
-def test_keylocator_dir_resolution(test_dir: str) -> None:
-    """Ensure the key locator resolves paths as expected. Passing
-    `separate_keys=True` should result in matching pub/priv paths"""
-    key_path = pathlib.Path(test_dir)
-    key_name = "test"
-    key_category = "mycategory"
-
-    locator = _KeyLocator(key_path, key_name, key_category, separate_keys=False)
-
-    # we expect a category but NO pub/priv subdirectory
-    exp_pub = pathlib.Path(f"{test_dir}/{key_category}").resolve()
-    assert str(locator.public_dir) == str(exp_pub)
-
-    exp_priv = pathlib.Path(f"{test_dir}/{key_category}").resolve()
-    assert str(locator.private_dir) == str(exp_priv)
-
-    # and to be explicit... prove that they're the same directory
-    assert str(exp_pub) == str(exp_priv)
+    # and to be explicit... prove pub & priv are not same directory
+    assert str(locator.private_dir) != str(locator.public_dir)
 
 
 def test_key_manager_dir_preparation(

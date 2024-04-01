@@ -73,7 +73,6 @@ class _KeyLocator:
         root_dir: pathlib.Path,
         filename: str,
         category: str,
-        separate_keys: bool = True,
     ) -> None:
         """Initiailize a `KeyLocator`
 
@@ -107,9 +106,6 @@ class _KeyLocator:
         self._filename = filename
         """Base name for key files"""
 
-        self._separate_keys = separate_keys
-        """Flag indicating if public and private keys are persisted separately"""
-
         self._category = category
         """Category name used to further separate key locations"""
 
@@ -137,21 +133,17 @@ class _KeyLocator:
     def public(self) -> pathlib.Path:
         """Full target path of the public key file"""
         # combine the root and key type (e.g. /foo/bar + /server)
-        path = self._key_root_dir / self._category
-        # combine the pub/priv key subdir if necessary (e.g. /foo/bar + /pub)
-        if self._separate_keys:
-            path = path / self._public_subdir
-
+        # then combine the pub/priv key subdir (e.g. /foo/bar/server + /pub)
+        path = self._key_root_dir / self._category / self._public_subdir
         return path / self.public_filename
 
     @property
     def private(self) -> pathlib.Path:
         """Full target path of the private key file"""
         # combine the root and key type (e.g. /foo/bar + /server)
-        path = self._key_root_dir / self._category
+        # then combine the pub/priv key subdir (e.g. /foo/bar/server + /pub)
+        path = self._key_root_dir / self._category / self._private_subdir
         # combine the pub/priv key subdir if necessary (e.g. /foo/bar + /priv)
-        if self._separate_keys:
-            path = path / self._private_subdir
 
         return path / self.private_filename
 
