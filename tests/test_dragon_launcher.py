@@ -32,10 +32,6 @@ class MockSocket:
     def bind(self, addr: str) -> None:
         self._bind_address = addr
 
-    # def recv_json(self) -> str:
-    #     dbr = DragonBootstrapRequest(address=self._bind_address)
-    #     return dbr.json()
-
     def recv_string(self) -> str:
         dbr = DragonBootstrapRequest(address=self._bind_address)
         return f"bootstrap|{dbr.json()}"
@@ -45,6 +41,16 @@ class MockSocket:
     def send_json(self, json: str) -> None: ...
 
     def send_string(*args, **kwargs) -> None: ...
+
+    def close(self) -> None: ...
+
+    def send(self, *args, **kwargs) -> None: ...
+
+    def send_json(self, json: str) -> None: ...
+
+    def send_string(*args, **kwargs) -> None: ...
+
+    def connect(*args, **kwargs) -> None: ...
 
     @property
     def bind_address(self) -> str:
