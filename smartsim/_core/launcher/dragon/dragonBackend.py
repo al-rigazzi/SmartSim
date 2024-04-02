@@ -1,6 +1,6 @@
 # BSD 2-Clause License
 #
-# Copyright (c) 2021-2023, Hewlett Packard Enterprise
+# Copyright (c) 2021-2024, Hewlett Packard Enterprise
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -60,13 +60,7 @@ from smartsim._core.schemas import (
     DragonUpdateStatusRequest,
     DragonUpdateStatusResponse,
 )
-from smartsim.status import (
-    STATUS_COMPLETED,
-    STATUS_FAILED,
-    STATUS_NEVER_STARTED,
-    STATUS_RUNNING,
-    TERMINAL_STATUSES,
-)
+from smartsim.status import SmartSimStatus, TERMINAL_STATUSES
 
 DRG_ERROR_STATUS = str(Error())
 DRG_RUNNING_STATUS = str(Running())
@@ -178,11 +172,11 @@ class DragonBackend:
         if not self._request_is_satisfiable(request):
             message = f"Cannot satisfy request. Requested {request.nodes} nodes, "
             message += f"but only {len(self._hosts)} nodes are available."
-            self._group_infos[step_id] = ProcessGroupInfo(status=STATUS_FAILED)
+            self._group_infos[step_id] = ProcessGroupInfo(status=SmartSimStatus.STATUS_FAILED)
             return DragonRunResponse(step_id=step_id, error_message=message)
 
         self._queued_steps[step_id] = request
-        self._group_infos[step_id] = ProcessGroupInfo(status=STATUS_NEVER_STARTED)
+        self._group_infos[step_id] = ProcessGroupInfo(status=SmartSimStatus.STATUS_NEVER_STARTED)
         return DragonRunResponse(step_id=step_id)
 
     def update(self) -> None:
@@ -224,7 +218,7 @@ class DragonBackend:
                 process_group=grp,
                 puids=grp.puids,
                 return_codes=[],
-                status=STATUS_RUNNING,
+                status=SmartSimStatus.STATUS_RUNNING,
                 hosts=hosts,
             )
             self._running_steps.append(step_id)
@@ -242,7 +236,7 @@ class DragonBackend:
             grp = group_info.process_group
 
             if grp.status == DRG_RUNNING_STATUS:
-                group_info.status = STATUS_RUNNING
+                group_info.status = SmartSimStatus.STATUS_RUNNING
             else:
                 puids = group_info.puids
                 if puids is not None and all(puid is not None for puid in puids):
@@ -255,9 +249,9 @@ class DragonBackend:
                 else:
                     group_info.return_codes = [0]
                 group_info.status = (
-                    STATUS_FAILED
+                    SmartSimStatus.STATUS_FAILED
                     if any(group_info.return_codes) or grp.status == DRG_ERROR_STATUS
-                    else STATUS_COMPLETED
+                    else SmartSimStatus.STATUS_COMPLETED
                 )
 
             if group_info.status in TERMINAL_STATUSES:
@@ -293,7 +287,7 @@ class DragonBackend:
             # the application intercepts that and ignores it?
             proc_group = self._group_infos[request.step_id].process_group
             if proc_group is None:
-                self._group_infos[request.step_id].status = STATUS_FAILED
+                self._group_infos[request.step_id].status = SmartSimStatus.STATUS_FAILED
             elif proc_group.status not in TERMINAL_STATUSES:
                 try:
                     proc_group.kill()
