@@ -26,10 +26,8 @@
 import pytest
 
 from smartsim import Experiment
-from smartsim._core.launcher.dragon.dragonLauncher import (
-    DragonLauncher,
-    _dragon_cleanup,
-)
+from smartsim._core.launcher.dragon.dragonLauncher import DragonLauncher
+from smartsim.status import SmartSimStatus
 
 # retrieved from pytest fixtures
 if pytest.test_launcher != "dragon":
@@ -49,6 +47,8 @@ def test_dragon_global_path(global_dragon_teardown, wlmutils, test_dir, monkeypa
     exp.generate(model)
     exp.start(model, block=True)
 
+    assert exp.get_status(model)[0] == SmartSimStatus.STATUS_COMPLETED
+
 
 def test_dragon_exp_path(global_dragon_teardown, wlmutils, test_dir, monkeypatch):
     monkeypatch.delenv("SMARTSIM_DRAGON_SERVER_PATH", raising=False)
@@ -65,3 +65,22 @@ def test_dragon_exp_path(global_dragon_teardown, wlmutils, test_dir, monkeypatch
 
     launcher: DragonLauncher = exp._control._launcher
     launcher.cleanup()
+
+    assert exp.get_status(model)[0] == SmartSimStatus.STATUS_COMPLETED
+
+
+def test_dragon_cannot_honor(wlmutils, test_dir, monkeypatch):
+    monkeypatch.setenv("SMARTSIM_DRAGON_SERVER_PATH", test_dir)
+    exp: Experiment = Experiment(
+        "test_dragon_cannott_honor",
+        exp_path=test_dir,
+        launcher=wlmutils.get_test_launcher(),
+    )
+    rs = exp.create_run_settings(exe="sleep", exe_args=["1"])
+    rs.set_nodes(100)
+    model = exp.create_model("sleep", run_settings=rs)
+
+    exp.generate(model)
+    exp.start(model, block=True)
+
+    assert exp.get_status(model)[0] == SmartSimStatus.STATUS_FAILED

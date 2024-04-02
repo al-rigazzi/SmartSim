@@ -176,7 +176,7 @@ class DragonBackend:
         honorable, err = self._can_honor(request)
         if not honorable:
             self._group_infos[step_id] = ProcessGroupInfo(
-                status=SmartSimStatus.STATUS_FAILED
+                status=SmartSimStatus.STATUS_FAILED, return_codes=[-1]
             )
             return DragonRunResponse(step_id=step_id, error_message=err)
 
