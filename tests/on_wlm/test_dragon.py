@@ -64,4 +64,4 @@ def test_dragon_exp_path(global_dragon_teardown, wlmutils, test_dir, monkeypatch
     exp.start(model, block=True)
 
     launcher: DragonLauncher = exp._control._launcher
-    _dragon_cleanup(launcher._dragon_head_socket, launcher._dragon_head_pid)
+    launcher.cleanup()
