@@ -34,9 +34,11 @@ import psutil
 A handful of useful functions for dealing with networks
 """
 
+
 class IFConfig(t.NamedTuple):
     interface: t.Optional[str]
     address: t.Optional[str]
+
 
 def get_ip_from_host(host: str) -> str:
     """Return the IP address for the interconnect.

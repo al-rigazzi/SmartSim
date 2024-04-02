@@ -44,7 +44,6 @@ from dragon.native.machine import System, Node
 
 # pylint: enable=import-error
 # isort: on
-from smartsim._core.utils.helpers import create_short_id_str
 from smartsim._core.schemas import (
     DragonHandshakeRequest,
     DragonHandshakeResponse,
@@ -59,6 +58,7 @@ from smartsim._core.schemas import (
     DragonUpdateStatusRequest,
     DragonUpdateStatusResponse,
 )
+from smartsim._core.utils.helpers import create_short_id_str
 from smartsim.status import TERMINAL_STATUSES, SmartSimStatus
 
 DRG_ERROR_STATUS = str(Error())
@@ -141,7 +141,6 @@ class DragonBackend:
             message += f"but only {len(self._hosts)} nodes are available."
             return False, message
         return True, None
-
 
     def _allocate_step(
         self, step_id: str, request: DragonRunRequest
