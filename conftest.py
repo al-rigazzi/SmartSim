@@ -31,6 +31,7 @@ import json
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -168,7 +169,7 @@ def pytest_sessionfinish(
     kill_all_test_spawned_processes()
 
 
-def build_mpi_app() -> t.Optional[Path]:
+def build_mpi_app() -> t.Optional[pathlib.Path]:
     global built_mpi_app
     built_mpi_app = True
     cc = shutil.which("cc")
@@ -177,8 +178,8 @@ def build_mpi_app() -> t.Optional[Path]:
     if cc is None:
         return None
 
-    path_to_src =  Path(FileUtils().get_test_conf_path("mpi"))
-    path_to_out = Path(test_output_root) / "apps" / "mpi_app"
+    path_to_src =  pathlib.Path(FileUtils().get_test_conf_path("mpi"))
+    path_to_out = pathlib.Path(test_output_root) / "apps" / "mpi_app"
     os.makedirs(path_to_out.parent, exist_ok=True)
     cmd = [cc, str(path_to_src / "mpi_hello.c"), "-o", str(path_to_out)]
     proc = subprocess.Popen(cmd)
@@ -188,8 +189,8 @@ def build_mpi_app() -> t.Optional[Path]:
     else:
         return None
 
-@pytest.fixture
-def mpi_app_path() -> t.Optional[Path]:
+@pytest.fixture(scope="session")
+def mpi_app_path() -> t.Optional[pathlib.Path]:
     """Return path to MPI app if it was built
 
         return None if it could not or will not be built
@@ -771,7 +772,7 @@ class ColoUtils:
 
 
 @pytest.fixture(scope="function")
-def global_dragon_teardown() -> t.Generator[t.Any, t.Any, t.Any]:
+def global_dragon_teardown() -> None:
     """Connect to a dragon server started at the path indicated by
     the environment variable SMARTSIM_DRAGON_SERVER_PATH and
     force its shutdown to bring down the runtime and allow a subsequent
@@ -788,7 +789,7 @@ def global_dragon_teardown() -> t.Generator[t.Any, t.Any, t.Any]:
     exp.start(model, block=True)
 
     launcher: DragonLauncher = exp._control._launcher
-    _dragon_cleanup(launcher._dragon_head_socket, launcher._dragon_head_pid)
+    launcher.cleanup()
     time.sleep(5)
 
 

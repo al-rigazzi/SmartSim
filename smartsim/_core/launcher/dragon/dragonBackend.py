@@ -29,7 +29,6 @@ import functools
 import typing as t
 from dataclasses import dataclass, field
 from threading import RLock
-from uuid import uuid4
 
 # pylint: disable=import-error
 # isort: off
@@ -45,7 +44,7 @@ from dragon.native.machine import System, Node
 
 # pylint: enable=import-error
 # isort: on
-
+from smartsim._core.utils.helpers import create_short_id_str
 from smartsim._core.schemas import (
     DragonHandshakeRequest,
     DragonHandshakeResponse,
@@ -157,7 +156,7 @@ class DragonBackend:
     def _get_new_id(self) -> str:
         with self._step_id_lock:
             self._step_id += 1
-            return str(uuid4())[-4:] + "-" + str(self._step_id)
+            return create_short_id_str() + "-" + str(self._step_id)
 
     @functools.singledispatchmethod
     # Deliberately suppressing errors so that overloads have the same signature
