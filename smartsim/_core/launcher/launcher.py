@@ -70,7 +70,7 @@ class Launcher(abc.ABC):  # pragma: no cover
         raise NotImplementedError
 
     @abc.abstractmethod
-    def cleanup() -> None:
+    def cleanup(self) -> None:
         raise NotImplementedError
 
 
@@ -184,4 +184,4 @@ class WLMLauncher(Launcher):  # cov-wlm
     ) -> t.List[StepInfo]:  # pragma: no cover
         return []
 
-    def cleanup() -> None: ...
+    def cleanup(self) -> None: ...

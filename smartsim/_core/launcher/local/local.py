@@ -132,3 +132,5 @@ class LocalLauncher(Launcher):
 
     def __str__(self) -> str:
         return "Local"
+
+    def cleanup(self) -> None: ...

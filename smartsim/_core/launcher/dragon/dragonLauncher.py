@@ -257,7 +257,10 @@ class DragonLauncher(WLMLauncher):
 
     def cleanup(self) -> None:
         if self._dragon_head_socket is not None and self._dragon_head_pid is not None:
-            _dragon_cleanup(server_socket=self._dragon_head_socket, server_process_pid=self._dragon_head_pid)
+            _dragon_cleanup(
+                server_socket=self._dragon_head_socket,
+                server_process_pid=self._dragon_head_pid,
+            )
 
     # RunSettings types supported by this launcher
     @property
