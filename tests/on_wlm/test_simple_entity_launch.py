@@ -72,7 +72,7 @@ def test_multinode_app(mpi_app_path, test_dir, wlmutils):
     exp_name = "test-mpi-app"
     exp = Experiment(exp_name, launcher=wlmutils.get_test_launcher(), exp_path=test_dir)
 
-    settings = exp.create_run_settings(os.path.join(mpi_app_path, "mpi_app"), [])
+    settings = exp.create_run_settings(str(mpi_app_path), [])
     settings.set_nodes(3)
 
     model = exp.create_model("mpi_app", run_settings=settings)

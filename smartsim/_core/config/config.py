@@ -237,10 +237,9 @@ class Config:
         return os.environ.get("SMARTSIM_TEST_ACCOUNT", None)
 
     @property
-    def test_no_mpi(self) -> bool:  # pragma: no cover
-        # None means that an MPI app will be tested if a small
-        # test program compiles: anything else will disable it
-        return "SMARTSIM_TEST_NO_MPI" in os.environ
+    def test_mpi(self) -> bool:  # pragma: no cover
+        # By default, test MPI app if it compiles
+        return int(os.environ.get("SMARTSIM_TEST_MPI", "1")) == 1
 
     @property
     def telemetry_frequency(self) -> int:

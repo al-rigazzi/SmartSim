@@ -255,6 +255,10 @@ class DragonLauncher(WLMLauncher):
                 log_dragon_outputs()
                 raise LauncherError("Could not receive address of Dragon head process")
 
+    def cleanup(self) -> None:
+        if self._dragon_head_socket is not None and self._dragon_head_pid is not None:
+            _dragon_cleanup(server_socket=self._dragon_head_socket, server_process_pid=self._dragon_head_pid)
+
     # RunSettings types supported by this launcher
     @property
     def supported_rs(self) -> t.Dict[t.Type[SettingsBase], t.Type[Step]]:
@@ -385,6 +389,7 @@ class DragonLauncher(WLMLauncher):
                         f"One or more processes failed for job {step_id}"
                         f"Return codes were: {ret_codes}"
                     )
+                    logger.error(_err_msg)
             else:
                 grp_ret_code = None
             info = StepInfo(status, status, grp_ret_code)
