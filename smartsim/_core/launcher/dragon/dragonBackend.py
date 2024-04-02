@@ -75,7 +75,7 @@ class ProcessGroupInfo:
     hosts: t.List[str] = field(default_factory=list)
 
     @property
-    def smartsim_info(self) -> t.Tuple[str, t.Optional[t.List[int]]]:
+    def smartsim_info(self) -> t.Tuple[SmartSimStatus, t.Optional[t.List[int]]]:
         return (self.status, self.return_codes)
 
 
