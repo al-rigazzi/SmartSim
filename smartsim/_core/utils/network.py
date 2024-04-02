@@ -26,7 +26,6 @@
 
 import socket
 import typing as t
-from collections import namedtuple
 
 import psutil
 
