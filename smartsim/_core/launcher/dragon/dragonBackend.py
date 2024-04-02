@@ -129,14 +129,19 @@ class DragonBackend:
             self._free_hosts: t.Deque[str] = collections.deque(self._hosts)
             self._allocated_hosts: t.Dict[str, str] = {}
 
-    def _request_is_satisfiable(self, request: DragonRunRequest) -> bool:
-        """Check if request can be satisfied with resources
+    def _can_honor(self, request: DragonRunRequest) -> t.Tuple[bool, t.Optional[str]]:
+        """Check if request can be honored with resources
         available in the allocation.
         Currently only checks for total number of nodes,
         in the future it will also look at other constraints
         such as memory, accelerators, and so on.
         """
-        return request.nodes <= len(self._hosts)
+        if request.nodes > len(self._hosts):
+            message = f"Cannot satisfy request. Requested {request.nodes} nodes, "
+            message += f"but only {len(self._hosts)} nodes are available."
+            return False, message
+        return True, None
+
 
     def _allocate_step(
         self, step_id: str, request: DragonRunRequest
@@ -168,13 +173,12 @@ class DragonBackend:
     def _(self, request: DragonRunRequest) -> DragonRunResponse:
 
         step_id = self._get_new_id()
-        if not self._request_is_satisfiable(request):
-            message = f"Cannot satisfy request. Requested {request.nodes} nodes, "
-            message += f"but only {len(self._hosts)} nodes are available."
+        honorable, err = self._can_honor(request)
+        if not honorable:
             self._group_infos[step_id] = ProcessGroupInfo(
                 status=SmartSimStatus.STATUS_FAILED
             )
-            return DragonRunResponse(step_id=step_id, error_message=message)
+            return DragonRunResponse(step_id=step_id, error_message=err)
 
         self._queued_steps[step_id] = request
         self._group_infos[step_id] = ProcessGroupInfo(

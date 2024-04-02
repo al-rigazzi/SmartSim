@@ -69,10 +69,6 @@ class Launcher(abc.ABC):  # pragma: no cover
     def stop(self, step_name: str) -> StepInfo:
         raise NotImplementedError
 
-    @abc.abstractmethod
-    def cleanup(self) -> None:
-        raise NotImplementedError
-
 
 class WLMLauncher(Launcher):  # cov-wlm
     """The base class for any Launcher that utilizes workload
@@ -183,5 +179,3 @@ class WLMLauncher(Launcher):  # cov-wlm
         step_ids: t.List[str],  # pylint: disable=unused-argument
     ) -> t.List[StepInfo]:  # pragma: no cover
         return []
-
-    def cleanup(self) -> None: ...

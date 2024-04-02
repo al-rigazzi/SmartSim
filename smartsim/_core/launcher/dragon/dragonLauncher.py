@@ -474,9 +474,6 @@ def _dragon_cleanup(server_socket: zmq.Socket[t.Any], server_process_pid: int) -
         # Can't use the logger as I/O file may be closed
         print("Could not send shutdown request to dragon server")
         print(f"ZMQ error: {e}", flush=True)
-
-    except ValueError:
-        pass
     finally:
         time.sleep(1)
         try:

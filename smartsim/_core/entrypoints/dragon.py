@@ -91,6 +91,8 @@ def run(
 
     zmq_context.setsockopt(zmq.SNDTIMEO, value=1000)
     zmq_context.setsockopt(zmq.RCVTIMEO, value=1000)
+    zmq_context.setsockopt(zmq.REQ_CORRELATE, 1)
+    zmq_context.setsockopt(zmq.REQ_RELAXED, 1)
     dragon_head_socket = zmq_context.socket(zmq.REP)
     dragon_head_socket.bind(dragon_head_address)
     dragon_backend = DragonBackend(pid=dragon_pid)
