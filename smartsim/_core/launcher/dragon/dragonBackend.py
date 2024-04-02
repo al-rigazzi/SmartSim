@@ -60,7 +60,7 @@ from smartsim._core.schemas import (
     DragonUpdateStatusRequest,
     DragonUpdateStatusResponse,
 )
-from smartsim.status import SmartSimStatus, TERMINAL_STATUSES
+from smartsim.status import TERMINAL_STATUSES, SmartSimStatus
 
 DRG_ERROR_STATUS = str(Error())
 DRG_RUNNING_STATUS = str(Running())
@@ -172,11 +172,15 @@ class DragonBackend:
         if not self._request_is_satisfiable(request):
             message = f"Cannot satisfy request. Requested {request.nodes} nodes, "
             message += f"but only {len(self._hosts)} nodes are available."
-            self._group_infos[step_id] = ProcessGroupInfo(status=SmartSimStatus.STATUS_FAILED)
+            self._group_infos[step_id] = ProcessGroupInfo(
+                status=SmartSimStatus.STATUS_FAILED
+            )
             return DragonRunResponse(step_id=step_id, error_message=message)
 
         self._queued_steps[step_id] = request
-        self._group_infos[step_id] = ProcessGroupInfo(status=SmartSimStatus.STATUS_NEVER_STARTED)
+        self._group_infos[step_id] = ProcessGroupInfo(
+            status=SmartSimStatus.STATUS_NEVER_STARTED
+        )
         return DragonRunResponse(step_id=step_id)
 
     def update(self) -> None:

@@ -28,8 +28,8 @@ import typing as t
 
 from pydantic import BaseModel, Field
 
-from smartsim.status import SmartSimStatus
 import smartsim._core.schemas.utils as _utils
+from smartsim.status import SmartSimStatus
 
 # Black and Pylint disagree about where to put the `...`
 # pylint: disable=multiple-statements
