@@ -68,7 +68,7 @@ DRG_RUNNING_STATUS = str(Running())
 
 @dataclass
 class ProcessGroupInfo:
-    status: str
+    status: SmartSimStatus
     process_group: t.Optional[ProcessGroup] = None
     puids: t.Optional[t.List[t.Optional[int]]] = None  # puids can be None
     return_codes: t.Optional[t.List[int]] = None
