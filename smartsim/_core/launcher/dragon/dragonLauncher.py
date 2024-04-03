@@ -482,10 +482,10 @@ def _dragon_cleanup(
     server_authenticator: t.Optional[zmq.auth.thread.ThreadAuthenticator] = None,
 ) -> None:
     """Clean up resources used by the launcher.
-    :param server_socket: Socket used to connect to dragon environment
-    :type server_socket: zmq.Socket
-    :param server_process_pid: Process ID of the dragon entrypoint
-    :type server_process_pid: int
+    :param server_socket: (optional) Socket used to connect to dragon environment
+    :type server_socket: Optional[zmq.Socket]
+    :param server_process_pid: (optional) Process ID of the dragon entrypoint
+    :type server_process_pid: Optional[int]
     :param server_authenticator: (optional) Authenticator used to secure sockets
     :type server_authenticator: Optional[zmq.auth.thread.ThreadAuthenticator]
     """
