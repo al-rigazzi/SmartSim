@@ -41,10 +41,8 @@ from smartsim import Experiment
 from smartsim._core.control.job import Job, JobEntity
 from smartsim._core.control.jobmanager import JobManager
 from smartsim._core.entrypoints.telemetrymonitor import get_parser
-from smartsim._core.launcher.dragon.dragonLauncher import DragonLauncher
 from smartsim._core.launcher.launcher import WLMLauncher
 from smartsim._core.launcher.slurm.slurmLauncher import SlurmLauncher
-from smartsim._core.launcher.step.dragonStep import DragonStep
 from smartsim._core.launcher.step.step import Step, proxyable_launch_cmd
 from smartsim._core.launcher.stepInfo import StepInfo
 from smartsim._core.utils import serialize
