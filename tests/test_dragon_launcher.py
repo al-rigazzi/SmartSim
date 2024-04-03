@@ -208,11 +208,7 @@ def test_secure_socket_authenticator_setup(
         # look at test dir for dragon config
         ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
         # avoid starting a real authenticator thread
-        # ctx.setattr("zmq.auth.thread.ThreadAuthenticator", MockAuthenticator)
-        ctx.setattr(
-            "smartsim._core.launcher.dragon.dragonSockets.zmq.auth.thread.ThreadAuthenticator",
-            MockAuthenticator,
-        )
+        ctx.setattr("zmq.auth.thread.ThreadAuthenticator", MockAuthenticator)
 
         _, authenticator = get_secure_socket(context, socket_type, is_server=is_server)
 
