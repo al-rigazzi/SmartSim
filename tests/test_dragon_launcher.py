@@ -332,7 +332,4 @@ def test_dragon_launcher_handshake(monkeypatch: pytest.MonkeyPatch, test_dir: st
             # connect executes the complete handshake and raises an exception if comms fails
             launcher.connect_to_dragon(test_dir)
         finally:
-            import time
-
-            time.sleep(1)
             launcher.cleanup()
