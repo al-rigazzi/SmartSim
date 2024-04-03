@@ -1142,7 +1142,7 @@ def test_unmanaged_steps_are_proxyed_through_indirect(
     step = wlm_launcher.create_step("test-step", test_dir, rs)
     step.meta = mock_step_meta_dict
     assert isinstance(step, Step)
-    assert not step.managed or isinstance(step, DragonStep)
+    assert not step.managed
     cmd = step.get_launch_cmd()
     assert sys.executable in cmd
     assert PROXY_ENTRY_POINT in cmd
@@ -1159,7 +1159,7 @@ def test_unmanaged_steps_are_not_proxyed_if_the_telemetry_monitor_is_disabled(
     step = wlm_launcher.create_step("test-step", test_dir, rs)
     step.meta = mock_step_meta_dict
     assert isinstance(step, Step)
-    assert not step.managed or isinstance(step, DragonStep)
+    assert not step.managed
     cmd = step.get_launch_cmd()
     assert PROXY_ENTRY_POINT not in cmd
     assert "hello" in cmd
