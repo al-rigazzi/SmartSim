@@ -202,7 +202,7 @@ class DragonBackend:
                 restart=False, pmi_enabled=request.pmi_enabled, policy=global_policy
             )
 
-            for node_name in hosts[:request.nodes]:
+            for node_name in hosts[: request.nodes]:
                 local_policy = Policy(
                     placement=Policy.Placement.HOST_NAME, host_name=node_name
                 )
