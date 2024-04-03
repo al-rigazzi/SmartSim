@@ -271,11 +271,11 @@ class DragonLauncher(WLMLauncher):
                 raise LauncherError("Could not receive address of Dragon head process")
 
     def cleanup(self) -> None:
-        if self._dragon_head_socket is not None and self._dragon_head_pid is not None:
-            _dragon_cleanup(
-                server_socket=self._dragon_head_socket,
-                server_process_pid=self._dragon_head_pid,
-            )
+        _dragon_cleanup(
+            server_socket=self._dragon_head_socket,
+            server_process_pid=self._dragon_head_pid,
+            server_authenticator=self._authenticator,
+        )
 
     # RunSettings types supported by this launcher
     @property
@@ -477,8 +477,8 @@ def _assert_schema_type(obj: object, typ: t.Type[_SchemaT], /) -> _SchemaT:
 
 
 def _dragon_cleanup(
-    server_socket: zmq.Socket[t.Any],
-    server_process_pid: int,
+    server_socket: t.Optional[zmq.Socket[t.Any]] = None,
+    server_process_pid: t.Optional[int] = 0,
     server_authenticator: t.Optional[zmq.auth.thread.ThreadAuthenticator] = None,
 ) -> None:
     """Clean up resources used by the launcher.
@@ -491,7 +491,8 @@ def _dragon_cleanup(
     """
 
     try:
-        DragonLauncher.send_req_with_socket(server_socket, DragonShutdownRequest())
+        if server_socket is not None:
+            DragonLauncher.send_req_with_socket(server_socket, DragonShutdownRequest())
     except zmq.error.ZMQError as e:
         # Can't use the logger as I/O file may be closed
         print("Could not send shutdown request to dragon server")
@@ -500,7 +501,7 @@ def _dragon_cleanup(
         time.sleep(1)
 
     try:
-        if psutil.pid_exists(server_process_pid):
+        if server_process_pid and psutil.pid_exists(server_process_pid):
             os.kill(server_process_pid, signal.SIGINT)
             print("Sent SIGINT to dragon server")
     except ProcessLookupError:
@@ -508,17 +509,10 @@ def _dragon_cleanup(
         print("Dragon server is not running.", flush=True)
 
     try:
-        if server_authenticator is not None and server_authenticator.is_alive():
+        if server_authenticator is not None:
             server_authenticator.stop()
     except Exception:
         print("Authenticator shutdown error")
-
-    try:
-        os.kill(server_process_pid, signal.SIGINT)
-    except ProcessLookupError:
-        print(f"Process {server_process_pid} not found")
-    except Exception:
-        print(f"Process {server_process_pid} shutdown error")
 
 
 def _resolve_dragon_path(fallback: t.Union[str, "os.PathLike[str]"]) -> Path:

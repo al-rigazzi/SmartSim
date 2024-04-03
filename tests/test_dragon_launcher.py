@@ -25,6 +25,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import multiprocessing as mp
+import os
 import typing as t
 
 import pytest
@@ -102,11 +103,10 @@ class MockAuthenticator:
         self.num_stops += 1
 
     def is_alive(self) -> bool:
-        # todo: figure out what i need here....
-        return True
+        return self.num_starts > 0 and self.num_stops == 0
 
 
-def mock_dragon_env(*args, **kwargs):
+def mock_dragon_env(test_dir, *args, **kwargs):
     """Create a mock dragon environment that can talk to the launcher through ZMQ"""
     try:
         context = zmq.Context()
@@ -142,12 +142,12 @@ def mock_dragon_env(*args, **kwargs):
             # other side should set up a socket and push me a `HandshakeRequest`
             _ = dragon_head_socket.recv()
             # acknowledge handshake success w/DragonHandshakeResponse
-            handshake_ack = DragonHandshakeResponse()
+            handshake_ack = DragonHandshakeResponse(dragon_pid=os.getpid())
             dragon_head_socket.send_string(f"handshake|{handshake_ack.json()}")
 
             hand_shaken = True
-    except:
-        ...
+    except Exception as ex:
+        print(f"exception occurred while configuring mock handshaker: {ex}")
     finally:
         dragon_authenticator.stop()
         callback_socket.close()
@@ -208,7 +208,11 @@ def test_secure_socket_authenticator_setup(
         # look at test dir for dragon config
         ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
         # avoid starting a real authenticator thread
-        ctx.setattr("zmq.auth.thread.ThreadAuthenticator", MockAuthenticator)
+        # ctx.setattr("zmq.auth.thread.ThreadAuthenticator", MockAuthenticator)
+        ctx.setattr(
+            "smartsim._core.launcher.dragon.dragonSockets.zmq.auth.thread.ThreadAuthenticator",
+            MockAuthenticator,
+        )
 
         _, authenticator = get_secure_socket(context, socket_type, is_server=is_server)
 
@@ -309,29 +313,34 @@ def test_dragon_launcher_handshake(monkeypatch: pytest.MonkeyPatch, test_dir: st
         # avoid finding real interface since we may not be on a super
         ctx.setattr(
             "smartsim._core.launcher.dragon.dragonLauncher.get_best_interface_and_address",
-            lambda: ("faux_interface", addr),
+            lambda: IFConfig("faux_interface", addr),
         )
 
         # start up a faux dragon env that knows how to do the handshake process
         # but uses secure sockets for all communication.
         mock_dragon = mp.Process(
-            target=mock_dragon_env, daemon=True, kwargs={"port": bootstrap_port}
+            target=mock_dragon_env,
+            daemon=True,
+            kwargs={"port": bootstrap_port, "test_dir": test_dir},
         )
-        mock_dragon.start()
 
-        mock_popen = MockPopen()
-        ctx.setattr("subprocess.Popen", lambda *args, **kwargs: mock_popen)
+        def fn(*args, **kwargs):
+            mock_dragon.start()
+            return mock_dragon
+
+        # mock_popen = MockPopen()
+        ctx.setattr("subprocess.Popen", fn)
 
         launcher = DragonLauncher()
 
-        # connect executes the complete handshake and raises an exception if comms fails
-        launcher.connect_to_dragon(test_dir)
+        try:
+            # connect executes the complete handshake and raises an exception if comms fails
+            launcher.connect_to_dragon(test_dir)
+        finally:
+            import time
 
-        if mock_dragon.pid is None:
-            mock_dragon.terminate()
-
-        launcher._authenticator.stop()
-        launcher._dragon_head_socket.close()
+            time.sleep(1)
+            launcher.cleanup()
 
 
 def test_dragon_connect_bind_address(monkeypatch: pytest.MonkeyPatch, test_dir: str):
@@ -349,7 +358,7 @@ def test_dragon_connect_bind_address(monkeypatch: pytest.MonkeyPatch, test_dir: 
         # avoid finding real interface
         ctx.setattr(
             "smartsim._core.launcher.dragon.dragonLauncher.get_best_interface_and_address",
-            lambda: ("faux_interface", "127.0.0.1"),
+            lambda: IFConfig("faux_interface", "127.0.0.1"),
         )
         # we need to set the socket value or is_connected returns False
         ctx.setattr(
