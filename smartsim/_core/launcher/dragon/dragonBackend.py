@@ -105,7 +105,7 @@ class DragonBackend:
         host_string = str(num_hosts) + (" hosts" if num_hosts > 1 else " host")
         self._shutdown_requested = False
         self._updates = 0
-        print(host_string + f" available for execution: {self._hosts}")
+        print(f"{host_string} available for execution: {self._hosts}")
 
     def print_status(self) -> None:
         print("\n-----------------------Launcher Status-----------------------")
@@ -202,8 +202,7 @@ class DragonBackend:
                 restart=False, pmi_enabled=request.pmi_enabled, policy=global_policy
             )
 
-            for node_num in range(request.nodes):
-                node_name = hosts[node_num]
+            for node_name in hosts[:request.nodes]:
                 local_policy = Policy(
                     placement=Policy.Placement.HOST_NAME, host_name=node_name
                 )
@@ -270,8 +269,8 @@ class DragonBackend:
             self._completed_steps.append(step_id)
             group_info = self._group_infos[step_id]
             if group_info is not None:
-                for host in group_info.hosts:
-                    with self._hostlist_lock:
+                with self._hostlist_lock:
+                    for host in group_info.hosts:
                         print(f"{self._updates}: Releasing host {host}", flush=True)
                         self._allocated_hosts.pop(host)
                         self._free_hosts.append(host)
