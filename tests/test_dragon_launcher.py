@@ -324,7 +324,6 @@ def test_dragon_launcher_handshake(monkeypatch: pytest.MonkeyPatch, test_dir: st
             mock_dragon.start()
             return mock_dragon
 
-        # mock_popen = MockPopen()
         ctx.setattr("subprocess.Popen", fn)
 
         launcher = DragonLauncher()
