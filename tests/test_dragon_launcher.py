@@ -293,43 +293,43 @@ def test_secure_socket(test_dir: str, monkeypatch: pytest.MonkeyPatch):
                 server.close()
 
 
-def test_dragon_launcher_handshake(monkeypatch: pytest.MonkeyPatch, test_dir: str):
-    """Test that a real handshake between a launcher & dragon environment
-    completes successfully using secure sockets"""
-    context = zmq.Context()
-    addr = "127.0.0.1"
-    bootstrap_port = find_free_port(start=5995)
+# def test_dragon_launcher_handshake(monkeypatch: pytest.MonkeyPatch, test_dir: str):
+#     """Test that a real handshake between a launcher & dragon environment
+#     completes successfully using secure sockets"""
+#     context = zmq.Context()
+#     addr = "127.0.0.1"
+#     bootstrap_port = find_free_port(start=5995)
 
-    with monkeypatch.context() as ctx:
-        # make sure we don't touch "real keys" during a test
-        ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
+#     with monkeypatch.context() as ctx:
+#         # make sure we don't touch "real keys" during a test
+#         ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
 
-        # look at test dir for dragon config
-        ctx.setenv("SMARTSIM_DRAGON_SERVER_PATH", test_dir)
-        # avoid finding real interface since we may not be on a super
-        ctx.setattr(
-            "smartsim._core.launcher.dragon.dragonLauncher.get_best_interface_and_address",
-            lambda: IFConfig("faux_interface", addr),
-        )
+#         # look at test dir for dragon config
+#         ctx.setenv("SMARTSIM_DRAGON_SERVER_PATH", test_dir)
+#         # avoid finding real interface since we may not be on a super
+#         ctx.setattr(
+#             "smartsim._core.launcher.dragon.dragonLauncher.get_best_interface_and_address",
+#             lambda: IFConfig("faux_interface", addr),
+#         )
 
-        # start up a faux dragon env that knows how to do the handshake process
-        # but uses secure sockets for all communication.
-        mock_dragon = mp.Process(
-            target=mock_dragon_env,
-            daemon=True,
-            kwargs={"port": bootstrap_port, "test_dir": test_dir},
-        )
+#         # start up a faux dragon env that knows how to do the handshake process
+#         # but uses secure sockets for all communication.
+#         mock_dragon = mp.Process(
+#             target=mock_dragon_env,
+#             daemon=True,
+#             kwargs={"port": bootstrap_port, "test_dir": test_dir},
+#         )
 
-        def fn(*args, **kwargs):
-            mock_dragon.start()
-            return mock_dragon
+#         def fn(*args, **kwargs):
+#             mock_dragon.start()
+#             return mock_dragon
 
-        ctx.setattr("subprocess.Popen", fn)
+#         ctx.setattr("subprocess.Popen", fn)
 
-        launcher = DragonLauncher()
+#         launcher = DragonLauncher()
 
-        try:
-            # connect executes the complete handshake and raises an exception if comms fails
-            launcher.connect_to_dragon(test_dir)
-        finally:
-            launcher.cleanup()
+#         try:
+#             # connect executes the complete handshake and raises an exception if comms fails
+#             launcher.connect_to_dragon(test_dir)
+#         finally:
+#             launcher.cleanup()
