@@ -26,6 +26,7 @@
 
 import multiprocessing as mp
 import os
+import time
 import typing as t
 
 import pytest
@@ -33,7 +34,10 @@ import zmq
 
 from smartsim._core.config.config import get_config
 from smartsim._core.launcher.dragon.dragonLauncher import DragonLauncher
-from smartsim._core.launcher.dragon.dragonSockets import get_secure_socket
+from smartsim._core.launcher.dragon.dragonSockets import (
+    get_authenticator,
+    get_secure_socket,
+)
 from smartsim._core.schemas.dragonRequests import DragonBootstrapRequest
 from smartsim._core.schemas.dragonResponses import DragonHandshakeResponse
 from smartsim._core.utils.network import IFConfig, find_free_port
@@ -114,13 +118,10 @@ def mock_dragon_env(test_dir, *args, **kwargs):
         callback_port = kwargs["port"]
         head_port = find_free_port(start=callback_port + 1)
 
-        callback_socket, dragon_authenticator = get_secure_socket(
-            context, zmq.REQ, False
-        )
+        get_authenticator(context)
 
-        dragon_head_socket, dragon_authenticator = get_secure_socket(
-            context, zmq.REP, True, dragon_authenticator
-        )
+        callback_socket = get_secure_socket(context, zmq.REQ, False)
+        dragon_head_socket = get_secure_socket(context, zmq.REP, True)
 
         full_addr = f"{addr}:{callback_port}"
         callback_socket.connect(f"tcp://{full_addr}")
@@ -132,7 +133,7 @@ def mock_dragon_env(test_dir, *args, **kwargs):
 
         msg_sent = False
         while not msg_sent:
-            callback_socket.send_string("bootstrap|" + req.json())
+            callback_socket.send_string(f"bootstrap|{req.json()}")
             # hold until bootstrap response is received
             _ = callback_socket.recv()
             msg_sent = True
@@ -142,16 +143,25 @@ def mock_dragon_env(test_dir, *args, **kwargs):
             # other side should set up a socket and push me a `HandshakeRequest`
             _ = dragon_head_socket.recv()
             # acknowledge handshake success w/DragonHandshakeResponse
-            handshake_ack = DragonHandshakeResponse(dragon_pid=os.getpid())
+            handshake_ack = DragonHandshakeResponse(dragon_pid=12345)  # os.getpid())
             dragon_head_socket.send_string(f"handshake|{handshake_ack.json()}")
-
             hand_shaken = True
+
+        shutting_down = False
+        while not shutting_down:
+            msg = dragon_head_socket.recv()
+            if msg.startswith(b"shutdown"):
+                dragon_head_socket.send_string("shutdown|{}")
+                # time.sleep(5)
+                shutting_down = True
     except Exception as ex:
         print(f"exception occurred while configuring mock handshaker: {ex}")
     finally:
-        dragon_authenticator.stop()
-        callback_socket.close()
-        dragon_head_socket.close()
+        # if dragon_authenticator.is_alive():
+        #     dragon_authenticator.stop()
+        # callback_socket.close()
+        # dragon_head_socket.close()
+        ...
 
 
 def test_dragon_connect_bind_address(monkeypatch: pytest.MonkeyPatch, test_dir: str):
@@ -182,6 +192,11 @@ def test_dragon_connect_bind_address(monkeypatch: pytest.MonkeyPatch, test_dir: 
         ctx.setattr("zmq.Context.socket", mock_socket)
         # avoid starting a real process for dragon entrypoint
         ctx.setattr("subprocess.Popen", lambda *args, **kwargs: MockPopen())
+        # mock shutdown to avoid sending a message on a mock socket/authenticator pair
+        ctx.setattr(
+            "smartsim._core.launcher.dragon.dragonLauncher._dragon_cleanup",
+            lambda *args, **kwargs: print("mocked launcher shutdown complete."),
+        )
 
         dragon_launcher = DragonLauncher()
         dragon_launcher.connect_to_dragon(test_dir)
@@ -191,14 +206,14 @@ def test_dragon_connect_bind_address(monkeypatch: pytest.MonkeyPatch, test_dir: 
 
 
 @pytest.mark.parametrize(
-    "socket_type, is_server",
+    "is_server",
     [
-        pytest.param(zmq.REQ, True, id="as-server"),
-        pytest.param(zmq.REP, False, id="as-client"),
+        pytest.param(True, id="as-server"),
+        pytest.param(False, id="as-client"),
     ],
 )
 def test_secure_socket_authenticator_setup(
-    test_dir: str, monkeypatch: pytest.MonkeyPatch, socket_type: int, is_server: bool
+    test_dir: str, monkeypatch: pytest.MonkeyPatch, is_server: bool
 ):
     """Ensure the authenticator created by the secure socket factory method
     is fully configured and started when returned to a client"""
@@ -210,7 +225,7 @@ def test_secure_socket_authenticator_setup(
         # avoid starting a real authenticator thread
         ctx.setattr("zmq.auth.thread.ThreadAuthenticator", MockAuthenticator)
 
-        _, authenticator = get_secure_socket(context, socket_type, is_server=is_server)
+        authenticator = get_authenticator(context)
 
         km = KeyManager(get_config(), as_server=is_server)
 
@@ -247,7 +262,7 @@ def test_secure_socket_setup(
         # avoid starting a real authenticator thread
         ctx.setattr("zmq.auth.thread.ThreadAuthenticator", MockAuthenticator)
 
-        socket, _ = get_secure_socket(context, zmq.REP, as_server)
+        socket = get_secure_socket(context, zmq.REP, as_server)
 
         # verify the socket is correctly configured to use curve authentication
         assert bool(socket.CURVE_SERVER) == as_server
@@ -265,16 +280,15 @@ def test_secure_socket(test_dir: str, monkeypatch: pytest.MonkeyPatch):
         ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
 
         context = zmq.Context()
-        server, authenticator = get_secure_socket(context, zmq.REP, True)
+        authenticator = get_authenticator(context)
+        server = get_secure_socket(context, zmq.REP, True)
 
         ip, port = "127.0.0.1", find_free_port(start=9999)
 
         try:
             server.bind(f"tcp://*:{port}")
 
-            client, authenticator = get_secure_socket(
-                context, zmq.REQ, False, authenticator
-            )
+            client = get_secure_socket(context, zmq.REQ, False)
 
             client.connect(f"tcp://{ip}:{port}")
 
@@ -293,43 +307,45 @@ def test_secure_socket(test_dir: str, monkeypatch: pytest.MonkeyPatch):
                 server.close()
 
 
-# def test_dragon_launcher_handshake(monkeypatch: pytest.MonkeyPatch, test_dir: str):
-#     """Test that a real handshake between a launcher & dragon environment
-#     completes successfully using secure sockets"""
-#     context = zmq.Context()
-#     addr = "127.0.0.1"
-#     bootstrap_port = find_free_port(start=5995)
+def test_dragon_launcher_handshake(monkeypatch: pytest.MonkeyPatch, test_dir: str):
+    """Test that a real handshake between a launcher & dragon environment
+    completes successfully using secure sockets"""
+    context = zmq.Context()
+    addr = "127.0.0.1"
+    bootstrap_port = find_free_port(start=5995)
 
-#     with monkeypatch.context() as ctx:
-#         # make sure we don't touch "real keys" during a test
-#         ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
+    with monkeypatch.context() as ctx:
+        # make sure we don't touch "real keys" during a test
+        ctx.setenv("SMARTSIM_KEY_PATH", test_dir)
 
-#         # look at test dir for dragon config
-#         ctx.setenv("SMARTSIM_DRAGON_SERVER_PATH", test_dir)
-#         # avoid finding real interface since we may not be on a super
-#         ctx.setattr(
-#             "smartsim._core.launcher.dragon.dragonLauncher.get_best_interface_and_address",
-#             lambda: IFConfig("faux_interface", addr),
-#         )
+        # look at test dir for dragon config
+        ctx.setenv("SMARTSIM_DRAGON_SERVER_PATH", test_dir)
+        # avoid finding real interface since we may not be on a super
+        ctx.setattr(
+            "smartsim._core.launcher.dragon.dragonLauncher.get_best_interface_and_address",
+            lambda: IFConfig("faux_interface", addr),
+        )
 
-#         # start up a faux dragon env that knows how to do the handshake process
-#         # but uses secure sockets for all communication.
-#         mock_dragon = mp.Process(
-#             target=mock_dragon_env,
-#             daemon=True,
-#             kwargs={"port": bootstrap_port, "test_dir": test_dir},
-#         )
+        # start up a faux dragon env that knows how to do the handshake process
+        # but uses secure sockets for all communication.
+        mock_dragon = mp.Process(
+            target=mock_dragon_env,
+            kwargs={"port": bootstrap_port, "test_dir": test_dir},
+        )
 
-#         def fn(*args, **kwargs):
-#             mock_dragon.start()
-#             return mock_dragon
+        def fn(*args, **kwargs):
+            mock_dragon.start()
+            # return MockPopen()
+            return mock_dragon
 
-#         ctx.setattr("subprocess.Popen", fn)
+        ctx.setattr("subprocess.Popen", fn)
 
-#         launcher = DragonLauncher()
+        launcher = DragonLauncher()
 
-#         try:
-#             # connect executes the complete handshake and raises an exception if comms fails
-#             launcher.connect_to_dragon(test_dir)
-#         finally:
-#             launcher.cleanup()
+        try:
+            # connect executes the complete handshake and raises an exception if comms fails
+            launcher.connect_to_dragon(test_dir)
+            launcher._dragon_head_socket = None
+        finally:
+            launcher.cleanup()
+            launcher._authenticator = None
