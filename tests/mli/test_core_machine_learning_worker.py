@@ -7,6 +7,16 @@ import torch
 
 import smartsim.error as sse
 from smartsim._core.mli import workermanager as mli
+from smartsim._core.mli.infrastructure import FeatureStore, MemoryFeatureStore
+from smartsim._core.mli.worker import (
+    BatchResult,
+    ExecuteResult,
+    InferenceReply,
+    InferenceRequest,
+    InputTransformResult,
+    MachineLearningWorkerCore,
+    OutputTransformResult,
+)
 from smartsim._core.utils import installed_redisai_backends
 
 # The tests in this file belong to the group_a group
@@ -17,7 +27,7 @@ is_dragon = pytest.test_launcher == "dragon"
 torch_available = "torch" in installed_redisai_backends()
 
 
-class FileSystemFeatureStore(mli.FeatureStore):
+class FileSystemFeatureStore(FeatureStore):
     """Alternative feature store implementation for testing. Stores all
     data on the file system"""
 
@@ -94,12 +104,12 @@ def persist_torch_tensor(test_dir: str) -> pathlib.Path:
 def test_fetch_model_disk(persist_torch_model: pathlib.Path) -> None:
     """Verify that the ML worker successfully retrieves a model
     when given a valid (file system) key"""
-    worker = mli.MachineLearningWorkerCore
+    worker = MachineLearningWorkerCore
     key = str(persist_torch_model)
     feature_store = FileSystemFeatureStore()
     feature_store[str(persist_torch_model)] = persist_torch_model.read_bytes()
 
-    request = mli.InferenceRequest(model_key=key)
+    request = InferenceRequest(model_key=key)
 
     fetch_result = worker.fetch_model(request, feature_store)
     assert fetch_result.model_bytes
@@ -109,12 +119,12 @@ def test_fetch_model_disk(persist_torch_model: pathlib.Path) -> None:
 def test_fetch_model_disk_missing() -> None:
     """Verify that the ML worker fails to retrieves a model
     when given an invalid (file system) key"""
-    worker = mli.MachineLearningWorkerCore
-    feature_store = mli.MemoryFeatureStore()
+    worker = MachineLearningWorkerCore
+    feature_store = MemoryFeatureStore()
 
     key = "/path/that/doesnt/exist"
 
-    request = mli.InferenceRequest(model_key=key)
+    request = InferenceRequest(model_key=key)
 
     with pytest.raises(sse.SmartSimError) as ex:
         worker.fetch_model(request, feature_store)
@@ -127,16 +137,16 @@ def test_fetch_model_disk_missing() -> None:
 def test_fetch_model_feature_store(persist_torch_model: pathlib.Path) -> None:
     """Verify that the ML worker successfully retrieves a model
     when given a valid (file system) key"""
-    worker = mli.MachineLearningWorkerCore
+    worker = MachineLearningWorkerCore
 
     # create a key to retrieve from the feature store
     key = "test-model"
 
     # put model bytes into the feature store
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
     feature_store[key] = persist_torch_model.read_bytes()
 
-    request = mli.InferenceRequest(model_key=key)
+    request = InferenceRequest(model_key=key)
     fetch_result = worker.fetch_model(request, feature_store)
     assert fetch_result.model_bytes
     assert fetch_result.model_bytes == persist_torch_model.read_bytes()
@@ -145,12 +155,12 @@ def test_fetch_model_feature_store(persist_torch_model: pathlib.Path) -> None:
 def test_fetch_model_feature_store_missing() -> None:
     """Verify that the ML worker fails to retrieves a model
     when given an invalid (feature store) key"""
-    worker = mli.MachineLearningWorkerCore
+    worker = MachineLearningWorkerCore
 
     bad_key = "some-key"
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
 
-    request = mli.InferenceRequest(model_key=bad_key)
+    request = InferenceRequest(model_key=bad_key)
 
     # todo: consider that raising this exception shows impl. replace...
     with pytest.raises(sse.SmartSimError) as ex:
@@ -164,13 +174,13 @@ def test_fetch_model_feature_store_missing() -> None:
 def test_fetch_model_memory(persist_torch_model: pathlib.Path) -> None:
     """Verify that the ML worker successfully retrieves a model
     when given a valid (file system) key"""
-    worker = mli.MachineLearningWorkerCore
+    worker = MachineLearningWorkerCore
 
     key = "test-model"
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
     feature_store[key] = persist_torch_model.read_bytes()
 
-    request = mli.InferenceRequest(model_key=key)
+    request = InferenceRequest(model_key=key)
 
     fetch_result = worker.fetch_model(request, feature_store)
     assert fetch_result.model_bytes
@@ -183,10 +193,10 @@ def test_fetch_input_disk(persist_torch_tensor: pathlib.Path) -> None:
     when given a valid (file system) key"""
     tensor_name = str(persist_torch_tensor)
 
-    request = mli.InferenceRequest(input_keys=[tensor_name])
-    worker = mli.MachineLearningWorkerCore
+    request = InferenceRequest(input_keys=[tensor_name])
+    worker = MachineLearningWorkerCore
 
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
     feature_store[tensor_name] = persist_torch_tensor.read_bytes()
 
     fetch_result = worker.fetch_inputs(request, feature_store)
@@ -196,12 +206,12 @@ def test_fetch_input_disk(persist_torch_tensor: pathlib.Path) -> None:
 def test_fetch_input_disk_missing() -> None:
     """Verify that the ML worker fails to retrieves a tensor/input
     when given an invalid (file system) key"""
-    worker = mli.MachineLearningWorkerCore
+    worker = MachineLearningWorkerCore
 
     key = "/path/that/doesnt/exist"
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
 
-    request = mli.InferenceRequest(input_keys=[key])
+    request = InferenceRequest(input_keys=[key])
 
     # todo: consider that raising this exception shows impl. replace...
     with pytest.raises(sse.SmartSimError) as ex:
@@ -215,12 +225,12 @@ def test_fetch_input_disk_missing() -> None:
 def test_fetch_input_feature_store(persist_torch_tensor: pathlib.Path) -> None:
     """Verify that the ML worker successfully retrieves a tensor/input
     when given a valid (feature store) key"""
-    worker = mli.MachineLearningWorkerCore
+    worker = MachineLearningWorkerCore
 
     tensor_name = "test-tensor"
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
 
-    request = mli.InferenceRequest(input_keys=[tensor_name])
+    request = InferenceRequest(input_keys=[tensor_name])
 
     # put model bytes into the feature store
     feature_store[tensor_name] = persist_torch_tensor.read_bytes()
@@ -234,10 +244,10 @@ def test_fetch_input_feature_store(persist_torch_tensor: pathlib.Path) -> None:
 def test_fetch_multi_input_feature_store(persist_torch_tensor: pathlib.Path) -> None:
     """Verify that the ML worker successfully retrieves multiple tensor/input
     when given a valid collection of (feature store) keys"""
-    worker = mli.MachineLearningWorkerCore
+    worker = MachineLearningWorkerCore
 
     tensor_name = "test-tensor"
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
 
     # put model bytes into the feature store
     body1 = persist_torch_tensor.read_bytes()
@@ -249,7 +259,7 @@ def test_fetch_multi_input_feature_store(persist_torch_tensor: pathlib.Path) -> 
     body3 = b"mnopqrstuvwxyzabcdefghijkl"
     feature_store[tensor_name + "3"] = body3
 
-    request = mli.InferenceRequest(
+    request = InferenceRequest(
         input_keys=[tensor_name + "1", tensor_name + "2", tensor_name + "3"]
     )
 
@@ -265,11 +275,11 @@ def test_fetch_multi_input_feature_store(persist_torch_tensor: pathlib.Path) -> 
 def test_fetch_input_feature_store_missing() -> None:
     """Verify that the ML worker fails to retrieves a tensor/input
     when given an invalid (feature store) key"""
-    worker = mli.MachineLearningWorkerCore
+    worker = MachineLearningWorkerCore
 
     bad_key = "some-key"
-    feature_store = mli.MemoryFeatureStore()
-    request = mli.InferenceRequest(input_keys=[bad_key])
+    feature_store = MemoryFeatureStore()
+    request = InferenceRequest(input_keys=[bad_key])
 
     # todo: consider that raising this exception shows impl. replace...
     with pytest.raises(sse.SmartSimError) as ex:
@@ -283,12 +293,12 @@ def test_fetch_input_feature_store_missing() -> None:
 def test_fetch_input_memory(persist_torch_tensor: pathlib.Path) -> None:
     """Verify that the ML worker successfully retrieves a tensor/input
     when given a valid (file system) key"""
-    worker = mli.MachineLearningWorkerCore
-    feature_store = mli.MemoryFeatureStore()
+    worker = MachineLearningWorkerCore
+    feature_store = MemoryFeatureStore()
 
     model_name = "test-model"
     feature_store[model_name] = persist_torch_tensor.read_bytes()
-    request = mli.InferenceRequest(input_keys=[model_name])
+    request = InferenceRequest(input_keys=[model_name])
 
     fetch_result = worker.fetch_inputs(request, feature_store)
     assert fetch_result.inputs is not None
@@ -296,10 +306,10 @@ def test_fetch_input_memory(persist_torch_tensor: pathlib.Path) -> None:
 
 def test_batch_requests() -> None:
     """Verify batch requests handles an empty data set gracefully"""
-    worker = mli.MachineLearningWorkerCore
-    result = mli.InputTransformResult([])
+    worker = MachineLearningWorkerCore
+    result = InputTransformResult([])
 
-    request = mli.InferenceRequest(batch_size=10)
+    request = InferenceRequest(batch_size=10)
 
     with pytest.raises(NotImplementedError):
         # NOTE: we expect this to fail since it's not yet implemented.
@@ -309,10 +319,10 @@ def test_batch_requests() -> None:
 
 def test_place_outputs() -> None:
     """Verify outputs are shared using the feature store"""
-    worker = mli.MachineLearningWorkerCore
+    worker = MachineLearningWorkerCore
 
     key_name = "test-model"
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
 
     # create a key to retrieve from the feature store
     keys = [key_name + "1", key_name + "2", key_name + "3"]
@@ -321,8 +331,8 @@ def test_place_outputs() -> None:
     for k, v in zip(keys, data):
         feature_store[k] = v
 
-    request = mli.InferenceRequest(output_keys=keys)
-    execute_result = mli.ExecuteResult(data)
+    request = InferenceRequest(output_keys=keys)
+    execute_result = ExecuteResult(data)
 
     worker.place_output(request, execute_result, feature_store)
 

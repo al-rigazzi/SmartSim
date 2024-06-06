@@ -8,6 +8,21 @@ import torch
 
 import smartsim.error as sse
 from smartsim._core.mli import workermanager as mli
+from smartsim._core.mli.infrastructure import FeatureStore, MemoryFeatureStore
+from smartsim._core.mli.worker import (
+    BatchResult,
+    ExecuteResult,
+    FetchModelResult,
+    InferenceReply,
+    InferenceRequest,
+    InputFetchResult,
+    InputTransformResult,
+    IntegratedTorchWorker,
+    MachineLearningWorkerCore,
+    ModelLoadResult,
+    OutputTransformResult,
+    SampleTorchWorker,
+)
 from smartsim._core.utils import installed_redisai_backends
 
 # The tests in this file belong to the group_a group
@@ -32,14 +47,14 @@ def persist_torch_model(test_dir: str) -> pathlib.Path:
 def test_deserialize() -> None:
     """Verify that serialized requests are properly deserialized to
     and converted to the internal representation used by ML workers"""
-    worker = mli.SampleTorchWorker
+    worker = SampleTorchWorker
     buffer = io.BytesIO()
 
     exp_model_key = "model-key"
-    msg = mli.InferenceRequest(model_key=exp_model_key)
+    msg = InferenceRequest(model_key=exp_model_key)
     pickle.dump(msg, buffer)
 
-    deserialized: mli.InferenceRequest = worker.deserialize(buffer.getvalue())
+    deserialized: InferenceRequest = worker.deserialize(buffer.getvalue())
 
     assert deserialized.model_key == exp_model_key
     # assert deserialized.backend == exp_backend
@@ -48,10 +63,10 @@ def test_deserialize() -> None:
 @pytest.mark.skipif(not torch_available, reason="Torch backend is not installed")
 def test_load_model_from_disk(persist_torch_model: pathlib.Path) -> None:
     """Verify that a model can be loaded using a FileSystemFeatureStore"""
-    worker = mli.SampleTorchWorker
-    request = mli.InferenceRequest(raw_model=persist_torch_model.read_bytes())
+    worker = SampleTorchWorker
+    request = InferenceRequest(raw_model=persist_torch_model.read_bytes())
 
-    fetch_result = mli.FetchModelResult(persist_torch_model.read_bytes())
+    fetch_result = FetchModelResult(persist_torch_model.read_bytes())
     load_result = worker.load_model(request, fetch_result)
 
     input = torch.randn(2)
@@ -67,7 +82,7 @@ def test_transform_input() -> None:
     num_values = 7
     tensors = [torch.randn((rows, cols)) for _ in range(num_values)]
 
-    request = mli.InferenceRequest()
+    request = InferenceRequest()
 
     inputs: t.List[bytes] = []
     for tensor in tensors:
@@ -75,8 +90,8 @@ def test_transform_input() -> None:
         torch.save(tensor, buffer)
         inputs.append(buffer.getvalue())
 
-    fetch_result = mli.InputFetchResult(inputs)
-    worker = mli.SampleTorchWorker
+    fetch_result = InputFetchResult(inputs)
+    worker = SampleTorchWorker
     result = worker.transform_input(request, fetch_result)
     transformed: t.Collection[torch.Tensor] = result.transformed
 
@@ -102,16 +117,16 @@ def test_execute_model(persist_torch_model: pathlib.Path) -> None:
 
     # put model bytes into memory
     model_name = "test-key"
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
     feature_store[model_name] = persist_torch_model.read_bytes()
 
-    worker = mli.SampleTorchWorker
-    request = mli.InferenceRequest(model_key=model_name)
-    fetch_result = mli.FetchModelResult(persist_torch_model.read_bytes())
+    worker = SampleTorchWorker
+    request = InferenceRequest(model_key=model_name)
+    fetch_result = FetchModelResult(persist_torch_model.read_bytes())
     load_result = worker.load_model(request, fetch_result)
 
     value = torch.randn(2)
-    transform_result = mli.InputTransformResult([value])
+    transform_result = InputTransformResult([value])
 
     execute_result = worker.execute(request, load_result, transform_result)
 
@@ -124,14 +139,14 @@ def test_execute_missing_model(persist_torch_model: pathlib.Path) -> None:
 
     # use key that references an un-set model value
     model_name = "test-key"
-    feature_store = mli.MemoryFeatureStore()
+    feature_store = MemoryFeatureStore()
     feature_store[model_name] = persist_torch_model.read_bytes()
 
-    worker = mli.SampleTorchWorker
-    request = mli.InferenceRequest(input_keys=[model_name])
+    worker = SampleTorchWorker
+    request = InferenceRequest(input_keys=[model_name])
 
-    load_result = mli.ModelLoadResult(None)
-    transform_result = mli.InputTransformResult(
+    load_result = ModelLoadResult(None)
+    transform_result = InputTransformResult(
         [torch.randn(2), torch.randn(2), torch.randn(2)]
     )
 
@@ -149,9 +164,9 @@ def test_transform_output() -> None:
     inputs = [torch.randn((rows, cols)) for _ in range(num_values)]
     exp_outputs = [torch.Tensor(tensor) for tensor in inputs]
 
-    worker = mli.SampleTorchWorker
-    request = mli.InferenceRequest()
-    exec_result = mli.ExecuteResult(inputs)
+    worker = SampleTorchWorker
+    request = InferenceRequest()
+    exec_result = ExecuteResult(inputs)
 
     result = worker.transform_output(request, exec_result)
 

@@ -1,16 +1,16 @@
 import io
 import pathlib
 import pickle
+import time
 import typing as t
 
 import pytest
-import time
 import torch
 
 import smartsim.error as sse
 from smartsim._core.mli import workermanager as mli
-from smartsim._core.utils import installed_redisai_backends
 from smartsim._core.mli.message_handler import MessageHandler
+from smartsim._core.utils import installed_redisai_backends
 
 # The tests in this file belong to the group_b group
 pytestmark = pytest.mark.group_b
@@ -105,7 +105,9 @@ def test_deserialize_indirect_request(persist_torch_model: pathlib.Path) -> None
 
 
 @pytest.mark.skipif(not torch_available, reason="Torch backend is not installed")
-def test_deserialize_mixed_mode_indirect_inputs(persist_torch_model: pathlib.Path) -> None:
+def test_deserialize_mixed_mode_indirect_inputs(
+    persist_torch_model: pathlib.Path,
+) -> None:
     """Verify that a mixed mode (combining direct and indirect inputs, models, outputs)
     with indirect inputs is deserialized correctly"""
     worker = mli.IntegratedTorchWorker

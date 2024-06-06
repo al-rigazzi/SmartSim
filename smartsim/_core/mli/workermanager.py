@@ -1,18 +1,45 @@
-import io
+# BSD 2-Clause License
+#
+# Copyright (c) 2021-2024, Hewlett Packard Enterprise
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import logging
 import multiprocessing as mp
 import pathlib
-import pickle
 import time
 import typing as t
 import uuid
-from abc import ABC, abstractmethod
 
 import torch
 
-import smartsim.error as sse
+from smartsim._core.mli.util import ServiceHost
+from smartsim._core.mli.worker import IntegratedTorchWorker
 from smartsim.log import get_logger
+
+from .infrastructure import DragonCommChannel, FeatureStore, MemoryFeatureStore
 from .message_handler import MessageHandler
+from .worker import InferenceReply, MachineLearningWorkerBase
 
 if t.TYPE_CHECKING:
     import dragon.channels as dch
@@ -20,728 +47,6 @@ if t.TYPE_CHECKING:
 
 
 logger = get_logger(__name__)
-
-
-class DragonDict:
-    """Mock implementation of a dragon dictionary"""
-
-    def __init__(self) -> None:
-        """Initialize the mock DragonDict instance"""
-        self._storage: t.Dict[bytes, t.Any] = {}
-
-    def __getitem__(self, key: bytes) -> t.Any:
-        """Retrieve an item using key
-        :param key: Unique key of an item to retrieve from the feature store"""
-        return self._storage[key]
-
-    def __setitem__(self, key: bytes, value: t.Any) -> None:
-        """Assign a value using key
-        :param key: Unique key of an item to set in the feature store
-        :param value: Value to persist in the feature store"""
-        self._storage[key] = value
-
-    def __contains__(self, key: bytes) -> bool:
-        """Return `True` if the key is found, `False` otherwise
-        :param key: Unique key of an item to retrieve from the feature store"""
-        return key in self._storage
-
-
-class FeatureStore(ABC):
-    """Abstract base class providing the common interface for retrieving
-    values from a feature store implementation"""
-
-    @abstractmethod
-    def __getitem__(self, key: str) -> bytes:
-        """Retrieve an item using key
-        :param key: Unique key of an item to retrieve from the feature store"""
-
-    @abstractmethod
-    def __setitem__(self, key: str, value: bytes) -> None:
-        """Assign a value using key
-        :param key: Unique key of an item to set in the feature store
-        :param value: Value to persist in the feature store"""
-
-    @abstractmethod
-    def __contains__(self, key: str) -> bool:
-        """Membership operator to test for a key existing within the feature store.
-        Return `True` if the key is found, `False` otherwise
-        :param key: Unique key of an item to retrieve from the feature store"""
-
-
-class MemoryFeatureStore(FeatureStore):
-    """A feature store with values persisted only in local memory"""
-
-    def __init__(self) -> None:
-        """Initialize the MemoryFeatureStore instance"""
-        self._storage: t.Dict[str, bytes] = {}
-
-    def __getitem__(self, key: str) -> bytes:
-        """Retrieve an item using key
-        :param key: Unique key of an item to retrieve from the feature store"""
-        if key not in self._storage:
-            raise sse.SmartSimError(f"{key} not found in feature store")
-        return self._storage[key]
-
-    def __setitem__(self, key: str, value: bytes) -> None:
-        """Membership operator to test for a key existing within the feature store.
-        Return `True` if the key is found, `False` otherwise
-        :param key: Unique key of an item to retrieve from the feature store"""
-        self._storage[key] = value
-
-    def __contains__(self, key: str) -> bool:
-        """Membership operator to test for a key existing within the feature store.
-        Return `True` if the key is found, `False` otherwise
-        :param key: Unique key of an item to retrieve from the feature store"""
-        return key in self._storage
-
-
-class DragonFeatureStore(FeatureStore):
-    """A feature store backed by a dragon distributed dictionary"""
-
-    def __init__(self, storage: DragonDict) -> None:
-        """Initialize the DragonFeatureStore instance"""
-        self._storage = storage
-
-    def __getitem__(self, key: str) -> t.Any:
-        """Retrieve an item using key
-        :param key: Unique key of an item to retrieve from the feature store"""
-        key_ = key.encode("utf-8")
-        if key_ not in self._storage:
-            raise sse.SmartSimError(f"{key} not found in feature store")
-        return self._storage[key_]
-
-    def __setitem__(self, key: str, value: bytes) -> None:
-        """Assign a value using key
-        :param key: Unique key of an item to set in the feature store
-        :param value: Value to persist in the feature store"""
-        key_ = key.encode("utf-8")
-        self._storage[key_] = value
-
-    def __contains__(self, key: t.Union[str, bytes]) -> bool:
-        """Membership operator to test for a key existing within the feature store.
-        Return `True` if the key is found, `False` otherwise
-        :param key: Unique key of an item to retrieve from the feature store"""
-        if isinstance(key, str):
-            key = key.encode("utf-8")
-        return key in self._storage
-
-
-class CommChannel(ABC):
-    """Base class for abstracting a message passing mechanism"""
-
-    @abstractmethod
-    def send(self, value: bytes) -> None:
-        """Send a message throuh the underlying communication channel
-        :param value: The value to send"""
-
-    @classmethod
-    @abstractmethod
-    def find(cls, key: bytes) -> "CommChannel":
-        """Find a channel given its serialized key
-        :param key: The unique descriptor of a communications channel"""
-        raise NotImplementedError()
-
-
-class DragonCommChannel(CommChannel):
-    """Passes messages by writing to a Dragon channel"""
-
-    def __init__(self, channel: "dch.Channel") -> None:
-        """Initialize the DragonCommChannel instance"""
-        self._channel = channel
-        self._descriptor = "n/a"
-
-    def send(self, value: bytes) -> None:
-        """Send a message throuh the underlying communication channel
-        :param value: The value to send"""
-        self._channel.send_bytes(value)
-
-    @property
-    def descriptor(self) -> bytes:
-        """Return the channel descriptor for the underlying dragon channel"""
-        if isinstance(self._descriptor, str):
-            return self._descriptor.encode("utf-8")
-        return self._descriptor
-
-    # @property
-    # def key(self) -> str:
-    #     """Return the channel descriptor for the underlying dragon channel"""
-    #     descriptor = du.B64.bytes_to_str(self._channel.serialize())
-    #     return descriptor
-
-    @classmethod
-    def find(cls, key: bytes) -> "CommChannel":
-        """Find a channel given its serialized key
-        :param key: The unique descriptor of a communications channel"""
-        # todo: load channel correctly using dragon
-        # ch = dch.Channel(key)
-        dc = DragonCommChannel(key)
-        dc._descriptor = key
-        return dc
-
-
-class InferenceRequest:
-    """Temporary model of an inference request"""
-
-    def __init__(
-        self,
-        model_key: t.Optional[str] = None,
-        callback: t.Optional[CommChannel] = None,
-        raw_inputs: t.Optional[t.List[bytes]] = None,
-        input_keys: t.Optional[t.List[str]] = None,
-        output_keys: t.Optional[t.List[str]] = None,
-        raw_model: t.Optional[bytes] = None,
-        batch_size: int = 0,
-        device: t.Optional[str] = None,
-    ):
-        """Initialize the InferenceRequest"""
-        self.model_key = model_key
-        self.raw_model = raw_model
-        self.callback = callback
-        self.raw_inputs = raw_inputs
-        self.input_keys = input_keys or []
-        self.output_keys = output_keys or []
-        self.batch_size = batch_size
-        self.device = device
-
-    @staticmethod
-    def from_dict(source: t.Dict[str, t.Any]) -> "InferenceRequest":
-        return InferenceRequest(
-            # **source
-        )
-
-
-class InferenceReply:
-    """Temporary model of a reply to an inference request"""
-
-    def __init__(
-        self,
-        outputs: t.Optional[t.Collection[t.Any]] = None,
-        output_keys: t.Optional[t.Collection[str]] = None,
-        failed: bool = False,
-    ) -> None:
-        """Initialize the InferenceReply"""
-        self.outputs: t.Collection[t.Any] = outputs or []
-        self.output_keys: t.Collection[t.Optional[str]] = output_keys or []
-        self.failed = failed
-
-
-class ModelLoadResult:
-    """A wrapper around a loaded model"""
-
-    def __init__(self, model: t.Any) -> None:
-        """Initialize the ModelLoadResult"""
-        self.model = model
-
-
-class InputTransformResult:
-    """A wrapper around a transformed input"""
-
-    def __init__(self, result: t.Any) -> None:
-        """Initialize the InputTransformResult"""
-        self.transformed = result
-
-
-class ExecuteResult:
-    """A wrapper around inference results"""
-
-    def __init__(self, result: t.Any) -> None:
-        """Initialize the ExecuteResult"""
-        self.predictions = result
-
-
-class InputFetchResult:
-    """A wrapper around fetched inputs"""
-
-    def __init__(self, result: t.Any) -> None:
-        """Initialize the InputFetchResult"""
-        self.inputs = result
-
-
-class OutputTransformResult:
-    """A wrapper around inference results transformed for transmission"""
-
-    def __init__(self, result: t.Any) -> None:
-        """Initialize the OutputTransformResult"""
-        self.outputs = result
-
-
-class BatchResult:
-    """A wrapper around batched inputs"""
-
-    def __init__(self, result: t.Any) -> None:
-        """Initialize the BatchResult"""
-        self.batch = result
-
-
-class FetchModelResult:
-    """A wrapper around raw fetched models"""
-
-    def __init__(self, result: bytes) -> None:
-        """Initialize the BatchResult"""
-        self.model_bytes = result
-
-
-class MachineLearningWorkerCore:
-    """Basic functionality of ML worker that is shared across all worker types"""
-
-    @staticmethod
-    def fetch_model(
-        request: InferenceRequest, feature_store: FeatureStore
-    ) -> FetchModelResult:
-        """Given a resource key, retrieve the raw model from a feature store
-        :param request: The request that triggered the pipeline
-        :param feature_store: The feature store used for persistence
-        :return: Raw bytes of the model"""
-        if request.raw_model:
-            # Should we cache model in the feature store?
-            # model_key = hash(request.raw_model)
-            # feature_store[model_key] = request.raw_model
-            # short-circuit and return the directly supplied model
-            return FetchModelResult(request.raw_model)
-
-        if not request.model_key:
-            raise sse.SmartSimError(
-                "Key must be provided to retrieve model from feature store"
-            )
-
-        try:
-            raw_bytes = feature_store[request.model_key]
-            return FetchModelResult(raw_bytes)
-        except FileNotFoundError as ex:
-            logger.exception(ex)
-            raise sse.SmartSimError(
-                f"Model could not be retrieved with key {request.model_key}"
-            ) from ex
-
-    @staticmethod
-    def fetch_inputs(
-        request: InferenceRequest, feature_store: FeatureStore
-    ) -> InputFetchResult:
-        """Given a collection of ResourceKeys, identify the physical location
-        and input metadata
-        :param request: The request that triggered the pipeline
-        :param feature_store: The feature store used for persistence
-        :return: the fetched input"""
-        if request.input_keys:
-            data: t.List[bytes] = []
-            for input_ in request.input_keys:
-                try:
-                    tensor_bytes = feature_store[input_]
-                    data.append(tensor_bytes)
-                except KeyError as ex:
-                    logger.exception(ex)
-                    raise sse.SmartSimError(
-                        f"Model could not be retrieved with key {input_}"
-                    ) from ex
-            return InputFetchResult(data)
-
-        if request.raw_inputs:
-            return InputFetchResult(request.raw_inputs)
-
-        raise ValueError("No input source")
-
-    @staticmethod
-    def batch_requests(
-        request: InferenceRequest, transform_result: InputTransformResult
-    ) -> BatchResult:
-        """Create a batch of requests. Return the batch when batch_size datum have been
-        collected or a configured batch duration has elapsed.
-        :param request: The request that triggered the pipeline
-        :param transform_result: Transformed inputs ready for batching
-        :return: `None` if batch size has not been reached and timeout not exceeded."""
-        if transform_result is not None or request.batch_size:
-            raise NotImplementedError("Batching is not yet supported")
-        return BatchResult(None)
-
-    @staticmethod
-    def place_output(
-        request: InferenceRequest,
-        execute_result: ExecuteResult,
-        feature_store: FeatureStore,
-    ) -> t.Collection[t.Optional[str]]:
-        """Given a collection of data, make it available as a shared resource in the
-        feature store
-        :param request: The request that triggered the pipeline
-        :param execute_result: Results from inference
-        :param feature_store: The feature store used for persistence"""
-        keys: t.List[t.Optional[str]] = []
-        # need to decide how to get back to original sub-batch inputs so they can be
-        # accurately placed, datum might need to include this.
-
-        for k, v in zip(request.output_keys, execute_result.predictions):
-            feature_store[k] = v
-            keys.append(k)
-
-        return keys
-
-
-class MachineLearningWorkerBase(MachineLearningWorkerCore, ABC):
-    """Abstrct base class providing contract for a machine learning
-    worker implementation."""
-
-    @staticmethod
-    @abstractmethod
-    def deserialize(data_blob: bytes) -> InferenceRequest:
-        """Given a collection of data serialized to bytes, convert the bytes
-        to a proper representation used by the ML backend
-        :param data_blob: inference request as a byte-serialized blob
-        :return: InferenceRequest deserialized from the input"""
-
-    @staticmethod
-    @abstractmethod
-    def load_model(
-        request: InferenceRequest, fetch_result: FetchModelResult
-    ) -> ModelLoadResult:
-        """Given a loaded MachineLearningModel, ensure it is loaded into
-        device memory
-        :param request: The request that triggered the pipeline
-        :return: ModelLoadResult wrapping the model loaded for the request"""
-
-    @staticmethod
-    @abstractmethod
-    def transform_input(
-        request: InferenceRequest, fetch_result: InputFetchResult
-    ) -> InputTransformResult:
-        """Given a collection of data, perform a transformation on the data
-        :param request: The request that triggered the pipeline
-        :param fetch_result: Raw output from fetching inputs out of a feature store
-        :return: The transformed inputs wrapped in a InputTransformResult"""
-
-    @staticmethod
-    @abstractmethod
-    def execute(
-        request: InferenceRequest,
-        load_result: ModelLoadResult,
-        transform_result: InputTransformResult,
-    ) -> ExecuteResult:
-        """Execute an ML model on inputs transformed for use by the model
-        :param request: The request that triggered the pipeline
-        :param load_result: The result of loading the model onto device memory
-        :param transform_result: The result of transforming inputs for model consumption
-        :return: The result of inference wrapped in an ExecuteResult"""
-
-    @staticmethod
-    @abstractmethod
-    def transform_output(
-        request: InferenceRequest,
-        execute_result: ExecuteResult,
-    ) -> OutputTransformResult:
-        """Given inference results, perform transformations required to
-        transmit results to the requestor.
-        :param request: The request that triggered the pipeline
-        :param execute_result: The result of inference wrapped in an ExecuteResult
-        :return:"""
-
-    @staticmethod
-    @abstractmethod
-    def serialize_reply(reply: InferenceReply) -> bytes:
-        """Given an output, serialize to bytes for transport
-        :param reply: The result of the inference pipeline
-        :return: a byte-serialized version of the reply"""
-
-
-class SampleTorchWorker(MachineLearningWorkerBase):
-    """A minimum implementation of a worker that executes a PyTorch model"""
-
-    @staticmethod
-    def deserialize(data_blob: bytes) -> InferenceRequest:
-        request: InferenceRequest = pickle.loads(data_blob)
-        return request
-
-    @staticmethod
-    def load_model(
-        request: InferenceRequest, fetch_result: FetchModelResult
-    ) -> ModelLoadResult:
-        model_bytes = fetch_result.model_bytes or request.raw_model
-        if not model_bytes:
-            raise ValueError("Unable to load model without reference object")
-
-        model: torch.nn.Module = torch.load(io.BytesIO(model_bytes))
-        result = ModelLoadResult(model)
-        return result
-
-    @staticmethod
-    def transform_input(
-        request: InferenceRequest, fetch_result: InputFetchResult
-    ) -> InputTransformResult:
-        result = [torch.load(io.BytesIO(item)) for item in fetch_result.inputs]
-        return InputTransformResult(result)
-        # return data # note: this fails copy test!
-
-    @staticmethod
-    def execute(
-        request: InferenceRequest,
-        load_result: ModelLoadResult,
-        transform_result: InputTransformResult,
-    ) -> ExecuteResult:
-        """Execute an ML model on the given inputs"""
-        if not load_result.model:
-            raise sse.SmartSimError("Model must be loaded to execute")
-
-        model = load_result.model
-        results = [model(tensor) for tensor in transform_result.transformed]
-
-        execute_result = ExecuteResult(results)
-        return execute_result
-
-    @staticmethod
-    def transform_output(
-        request: InferenceRequest,
-        execute_result: ExecuteResult,
-    ) -> OutputTransformResult:
-        transformed = [item.clone() for item in execute_result.predictions]
-        return OutputTransformResult(transformed)
-
-    @staticmethod
-    def serialize_reply(reply: InferenceReply) -> bytes:
-        return pickle.dumps(reply)
-
-
-class IntegratedTorchWorker(MachineLearningWorkerBase):
-    """A minimum implementation of a worker that executes a PyTorch model"""
-
-    @staticmethod
-    def deserialize(data_blob: bytes) -> InferenceRequest:
-        # todo: consider moving to XxxCore and only making
-        # workers implement the inputs and model conversion?
-
-        # alternatively, consider passing the capnproto models 
-        # to this method instead of the data_blob... 
-
-        # something is definitely wrong here... client shouldn't have to touch
-        # callback (or batch size)
-
-        request = MessageHandler.deserialize_request(data_blob)
-        # return request
-        device = None
-        if request.device.which() == "deviceType":
-            device = request.device.deviceType
-
-        model_key: t.Optional[str] = None
-        model_bytes: t.Optional[bytes] = None
-
-        if request.model.which() == "modelKey":
-            model_key = request.model.modelKey
-        elif request.model.which() == "modelData":
-            model_bytes = request.model.modelData
-
-        callback_key = request.replyChannel.reply
-
-        # todo: shouldn't this be `CommChannel.find` instead of `DragonCommChannel`
-        comm_channel = DragonCommChannel.find(callback_key)
-        # comm_channel = DragonCommChannel(request.replyChannel)
-
-        input_keys: t.Optional[t.List[str]] = None
-        input_bytes: t.Optional[t.List[bytes]] = None  # these will really be tensors already
-
-        if request.input.which() == "inputKeys":
-            input_keys = request.input.inputKeys
-        elif request.input.which() == "inputData":
-            input_bytes = request.input.inputData
-
-        inf_req = InferenceRequest(
-            model_key=model_key,
-            callback=comm_channel,
-            raw_inputs=input_bytes,
-            input_keys=input_keys,
-            raw_model=model_bytes,
-            batch_size=0,
-            device=device,
-        )
-        return inf_req
-
-    @staticmethod
-    def load_model(
-        request: InferenceRequest, fetch_result: FetchModelResult
-    ) -> ModelLoadResult:
-        model_bytes = fetch_result.model_bytes or request.raw_model
-        if not model_bytes:
-            raise ValueError("Unable to load model without reference object")
-
-        model: torch.nn.Module = torch.load(io.BytesIO(model_bytes))
-        result = ModelLoadResult(model)
-        return result
-
-    @staticmethod
-    def transform_input(
-        request: InferenceRequest, fetch_result: InputFetchResult
-    ) -> InputTransformResult:
-        result = [torch.load(io.BytesIO(item)) for item in fetch_result.inputs]
-        return InputTransformResult(result)
-        # return data # note: this fails copy test!
-
-    @staticmethod
-    def execute(
-        request: InferenceRequest,
-        load_result: ModelLoadResult,
-        transform_result: InputTransformResult,
-    ) -> ExecuteResult:
-        """Execute an ML model on the given inputs"""
-        if not load_result.model:
-            raise sse.SmartSimError("Model must be loaded to execute")
-
-        model = load_result.model
-        results = [model(tensor) for tensor in transform_result.transformed]
-
-        execute_result = ExecuteResult(results)
-        return execute_result
-
-    @staticmethod
-    def transform_output(
-        request: InferenceRequest,
-        execute_result: ExecuteResult,
-    ) -> OutputTransformResult:
-        transformed = [item.clone() for item in execute_result.predictions]
-        return OutputTransformResult(transformed)
-
-    @staticmethod
-    def _prepare_outputs(
-        reply: InferenceReply
-    ) -> t.List[t.Any]:
-        results = []
-        if reply.output_keys:
-            for key in reply.output_keys:
-                msg_key = MessageHandler.build_tensor_key(key)
-                results.append(msg_key)
-        elif reply.outputs:
-            for output in reply.outputs:
-                tensor: torch.Tensor = output
-                # todo: need to have the output attributes specified in the req?
-                # maybe, add `MessageHandler.dtype_of(tensor)`?
-                # can `build_tensor` do dtype and shape?
-                msg_tensor = MessageHandler.build_tensor(
-                    tensor,
-                    "c",
-                    "float32",
-                    [1],
-                )
-                results.append(msg_tensor)
-        return results
-
-    @staticmethod
-    def serialize_reply(reply: InferenceReply) -> bytes:
-        # todo: consider moving to XxxCore and only making
-        # workers implement results-to-bytes
-        if reply.failed:
-            return MessageHandler.build_response(
-                status=400,  # todo: need to indicate correct status
-                message="fail",  # todo: decide what these will be
-                result=[],
-                custom_attributes=None,
-            )
-
-        results = IntegratedTorchWorker._prepare_outputs(reply)
-
-        response = MessageHandler.build_response(
-            status=200,  # todo: are we satisfied with 0/1 (success, fail)
-            message="success",  # todo: if not detailed messages, this shouldn't be returned.
-            result=results,
-            custom_attributes=None,
-        )
-        serialized_resp = MessageHandler.serialize_response(response)
-        return serialized_resp
-
-
-class ServiceHost(ABC):
-    """Base contract for standalone entrypoint scripts. Defines API for entrypoint
-    behaviors (event loop, automatic shutdown, cooldown) as well as simple
-    hooks for status changes"""
-
-    def __init__(
-        self, as_service: bool = False, cooldown: int = 0, loop_delay: int = 0
-    ) -> None:
-        """Initialize the ServiceHost
-        :param as_service: Determines if the host will run until shutdown criteria
-        are met or as a run-once instance
-        :param cooldown: Period of time to allow service to run before automatic
-        shutdown, in seconds. A non-zero, positive integer."""
-        self._as_service = as_service
-        """If the service should run until shutdown function returns True"""
-        self._cooldown = cooldown
-        """Duration of a cooldown period between requests to the service
-        before shutdown"""
-        self._loop_delay = loop_delay
-        """Forced delay between iterations of the event loop"""
-
-    @abstractmethod
-    def _on_iteration(self, timestamp: int) -> None:
-        """The user-defined event handler. Executed repeatedly until shutdown
-        conditions are satisfied and cooldown is elapsed.
-        :param timestamp: the timestamp at the start of the event loop iteration
-        """
-
-    @abstractmethod
-    def _can_shutdown(self) -> bool:
-        """Return true when the criteria to shut down the service are met."""
-
-    def _on_start(self) -> None:
-        """Empty hook method for use by subclasses. Called on initial entry into
-        ServiceHost `execute` event loop before `_on_iteration` is invoked."""
-        logger.debug(f"Starting {self.__class__.__name__}")
-
-    def _on_shutdown(self) -> None:
-        """Empty hook method for use by subclasses. Called immediately after exiting
-        the main event loop during automatic shutdown."""
-        logger.debug(f"Shutting down {self.__class__.__name__}")
-
-    def _on_cooldown(self) -> None:
-        """Empty hook method for use by subclasses. Called on every event loop
-        iteration immediately upon exceeding the cooldown period"""
-        logger.debug(f"Cooldown exceeded by {self.__class__.__name__}")
-
-    def execute(self) -> None:
-        """The main event loop of a service host. Evaluates shutdown criteria and
-        combines with a cooldown period to allow automatic service termination.
-        Responsible for executing calls to subclass implementation of `_on_iteration`"""
-        self._on_start()
-
-        start_ts = time.time_ns()
-        last_ts = start_ts
-        running = True
-        elapsed_cooldown = 0
-        nanosecond_scale_factor = 1000000000
-        cooldown_ns = self._cooldown * nanosecond_scale_factor
-
-        # if we're run-once, use cooldown to short circuit
-        if not self._as_service:
-            self._cooldown = 1
-            last_ts = start_ts - (cooldown_ns * 2)
-
-        while running:
-            self._on_iteration(start_ts)
-
-            eligible_to_quit = self._can_shutdown()
-
-            if self._cooldown and not eligible_to_quit:
-                # reset timer any time cooldown is interrupted
-                elapsed_cooldown = 0
-
-            # allow service to shutdown if no cooldown period applies...
-            running = not eligible_to_quit
-
-            # ... but verify we don't have remaining cooldown time
-            if self._cooldown:
-                elapsed_cooldown += start_ts - last_ts
-                remaining = cooldown_ns - elapsed_cooldown
-                running = remaining > 0
-
-                rem_in_s = remaining / nanosecond_scale_factor
-
-                if not running:
-                    cd_in_s = cooldown_ns / nanosecond_scale_factor
-                    logger.info(f"cooldown {cd_in_s}s exceeded by {abs(rem_in_s):.2f}s")
-                    self._on_cooldown()
-                    continue
-
-                logger.debug(f"cooldown remaining {abs(rem_in_s):.2f}s")
-
-            last_ts = start_ts
-            start_ts = time.time_ns()
-
-            if self._loop_delay:
-                time.sleep(abs(self._loop_delay))
-
-        self._on_shutdown()
 
 
 class WorkerManager(ServiceHost):
@@ -853,8 +158,8 @@ def mock_work(worker_manager_queue: "mp.Queue[bytes]") -> None:
         # 2. for demo, only one downstream but we'd normally have to filter
         #       msg content and send to the correct downstream (worker) queue
         timestamp = time.time_ns()
-        test_dir = "/lus/bnchlu1/mcbridch/code/ss/tests/test_output/brainstorm"
-        test_path = pathlib.Path(test_dir)
+        work_dir = "/lus/bnchlu1/mcbridch/code/ss/tests/test_output/brainstorm"
+        test_path = pathlib.Path(work_dir)
 
         mock_channel = test_path / f"brainstorm-{timestamp}.txt"
         mock_model = test_path / "brainstorm.pt"
@@ -867,12 +172,12 @@ def mock_work(worker_manager_queue: "mp.Queue[bytes]") -> None:
         worker_manager_queue.put(msg.encode("utf-8"))
 
 
-def persist_model_file(test_dir: str) -> pathlib.Path:
+def persist_model_file(work_dir: str) -> pathlib.Path:
     """Create a simple torch model and persist to disk for
     testing purposes.
 
     TODO: remove once unit tests are in place"""
-    test_path = pathlib.Path(test_dir)
+    test_path = pathlib.Path(work_dir)
     model_path = test_path / "basic.pt"
 
     model = torch.nn.Linear(2, 1)
@@ -882,7 +187,7 @@ def persist_model_file(test_dir: str) -> pathlib.Path:
 
 
 def mock_messages(
-    worker_manager_queue: "mp.Queue[bytes]", feature_store: FeatureStore
+    worker_manager_queue: "mp.Queue[bytes]", feature_store: FeatureStore, test_dir: str
 ) -> None:
     """Mock event producer for triggering the inference pipeline"""
     # todo: move to unit tests
@@ -890,7 +195,6 @@ def mock_messages(
     model_bytes = persist_model_file(test_dir).read_bytes()
     feature_store[model_key] = model_bytes
 
-    direct = False
     iteration_number = 0
 
     while True:
@@ -917,7 +221,7 @@ def mock_messages(
         # only incurs cost when working set size has been exceeded
 
         # msg = f"PyTorch:{mock_model}:MockInputToReplace:{mock_channel}"
-        input_tensor = torch.randn(2)
+        # input_tensor = torch.randn(2)
 
         expected_device = "cpu"
         channel_key = b"faux_channel_descriptor_bytes"
@@ -926,9 +230,10 @@ def mock_messages(
         input_key = f"demo-{iteration_number}"
         output_key = f"demo-{iteration_number}-out"
 
-        feature_store[input_key] = input_tensor
+        # feature_store[input_key] = input_tensor
 
-        # message_input_tensor = MessageHandler.build_tensor(input_tensor, "c", "float32", [2])
+        # message_input_tensor =
+        # MessageHandler.build_tensor(input_tensor, "c", "float32", [2])
         message_tensor_output_key = MessageHandler.build_tensor_key(output_key)
         message_tensor_input_key = MessageHandler.build_tensor_key(input_key)
         message_model_key = MessageHandler.build_model_key(model_key)
@@ -952,10 +257,14 @@ if __name__ == "__main__":
 
     # downstream_queue = mp.Queue()  # the queue to forward messages to a given worker
 
-    # torch_worker = TorchWorker(downstream_queue)
+    # torch_worker = SampleTorchWorker(downstream_queue)
+    integrated_worker = IntegratedTorchWorker()
 
-    # dict_fs = DictFeatureStore()
+    mem_fs = MemoryFeatureStore()
 
+    worker_manager = WorkerManager(
+        mem_fs, integrated_worker, as_service=True, cooldown=10
+    )
     # worker_manager = WorkerManager(dict_fs, as_service=True, cooldown=10)
     # # configure what the manager listens to
     # worker_manager.upstream_queue = upstream_queue
@@ -964,13 +273,16 @@ if __name__ == "__main__":
     # # worker_manager.add_worker(torch_worker, downstream_queue)
 
     # # create a pretend to populate the queues
-    msg_pump = mp.Process(target=mock_work, args=(upstream_queue,))
+    # msg_pump = mp.Process(target=mock_work, args=(upstream_queue,))
+    msg_pump = mp.Process(
+        target=mock_messages, args=(upstream_queue, mem_fs, "/lus/bnchlu1/mcbridch/tmp")
+    )
     msg_pump.start()
 
-    # # create a process to process commands
-    # process = mp.Process(target=worker_manager.execute, args=(time.time_ns(),))
-    # process.start()
-    # process.join()
+    # create a process to process commands
+    process = mp.Process(target=worker_manager.execute, args=(time.time_ns(),))
+    process.start()
+    process.join()
 
-    # msg_pump.kill()
+    msg_pump.kill()
     # logger.info(f"{DefaultTorchWorker.backend()=}")
