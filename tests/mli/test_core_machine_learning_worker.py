@@ -6,7 +6,11 @@ import pytest
 import torch
 
 import smartsim.error as sse
-from smartsim._core.mli.infrastructure import FeatureStore, MemoryFeatureStore
+from smartsim._core.mli.infrastructure import (
+    FeatureStore,
+    MemoryFeatureStore,
+    FileSystemFeatureStore,
+)
 from smartsim._core.mli.worker import (
     ExecuteResult,
     InferenceRequest,
@@ -21,47 +25,6 @@ pytestmark = pytest.mark.group_b
 # retrieved from pytest fixtures
 is_dragon = pytest.test_launcher == "dragon"
 torch_available = "torch" in installed_redisai_backends()
-
-
-class FileSystemFeatureStore(FeatureStore):
-    """Alternative feature store implementation for testing. Stores all
-    data on the file system"""
-
-    def __init__(self, storage_dir: t.Optional[pathlib.Path] = None) -> None:
-        """Initialize the FileSystemFeatureStore instance
-        :param storage_dir: (optional) root directory to store all data relative to"""
-        self._storage_dir = storage_dir
-
-    def __getitem__(self, key: str) -> bytes:
-        """Retrieve an item using key
-        :param key: Unique key of an item to retrieve from the feature store"""
-        path = self._key_path(key)
-        if not path.exists():
-            raise sse.SmartSimError(f"{path} not found in feature store")
-        return path.read_bytes()
-
-    def __setitem__(self, key: str, value: bytes) -> None:
-        """Assign a value using key
-        :param key: Unique key of an item to set in the feature store
-        :param value: Value to persist in the feature store"""
-        path = self._key_path(key)
-        path.write_bytes(value)
-
-    def __contains__(self, key: str) -> bool:
-        """Membership operator to test for a key existing within the feature store.
-        Return `True` if the key is found, `False` otherwise
-        :param key: Unique key of an item to retrieve from the feature store"""
-        path = self._key_path(key)
-        return path.exists()
-
-    def _key_path(self, key: str) -> pathlib.Path:
-        """Given a key, return a path that is optionally combined with a base
-        directory used by the FileSystemFeatureStore.
-        :param key: Unique key of an item to retrieve from the feature store"""
-        if self._storage_dir:
-            return self._storage_dir / key
-
-        return pathlib.Path(key)
 
 
 @pytest.fixture

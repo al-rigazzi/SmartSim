@@ -24,6 +24,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import io
 import logging
 import multiprocessing as mp
 import pathlib
@@ -33,13 +34,24 @@ import uuid
 
 import torch
 
-from smartsim._core.mli.util import ServiceHost
-from smartsim._core.mli.worker import IntegratedTorchWorker
+
 from smartsim.log import get_logger
 
-from .infrastructure import DragonCommChannel, FeatureStore, MemoryFeatureStore
-from .message_handler import MessageHandler
-from .worker import InferenceReply, MachineLearningWorkerBase
+from smartsim._core.mli.infrastructure import (
+    DragonCommChannel,
+    FeatureStore,
+    FileSystemFeatureStore,
+    FileSystemCommChannel,
+    CommChannel,
+)
+from smartsim._core.mli.message_handler import MessageHandler
+from smartsim._core.mli.util import ServiceHost
+from smartsim._core.mli.worker import (
+    InferenceReply,
+    InferenceRequest,
+    MachineLearningWorkerBase,
+    IntegratedTorchWorker,
+)
 
 if t.TYPE_CHECKING:
     import dragon.channels as dch
@@ -47,6 +59,94 @@ if t.TYPE_CHECKING:
 
 
 logger = get_logger(__name__)
+
+
+def deserialize_message(
+    data_blob: bytes, channel_type: t.Type[CommChannel]
+) -> InferenceRequest:
+    """Deserialize a message from a byte stream into an InferenceRequest
+    :param data_blob: The byte stream to deserialize"""
+    # todo: consider moving to XxxCore and only making
+    # workers implement the inputs and model conversion?
+
+    # alternatively, consider passing the capnproto models
+    # to this method instead of the data_blob...
+
+    # something is definitely wrong here... client shouldn't have to touch
+    # callback (or batch size)
+
+    request = MessageHandler.deserialize_request(data_blob)
+    # return request
+    device = None
+    if request.device.which() == "deviceType":
+        device = request.device.deviceType
+
+    model_key: t.Optional[str] = None
+    model_bytes: t.Optional[bytes] = None
+
+    if request.model.which() == "modelKey":
+        model_key = request.model.modelKey.key
+    elif request.model.which() == "modelData":
+        model_bytes = request.model.modelData
+
+    callback_key = request.replyChannel.reply
+
+    # todo: shouldn't this be `CommChannel.find` instead of `DragonCommChannel`
+    comm_channel = channel_type.find(callback_key)
+    # comm_channel = DragonCommChannel(request.replyChannel)
+
+    input_keys: t.Optional[t.List[str]] = None
+    input_bytes: t.Optional[t.List[bytes]] = (
+        None  # these will really be tensors already
+    )
+
+    # # client example
+    # msg = Message()
+    # t = torch.Tensor()
+    # msg.inputs = [custom_byte_converter(t)]
+    # mli_client.request_inference(msg)
+    # # end client
+    input_meta: t.List[t.Any] = []
+
+    if request.input.which() == "inputKeys":
+        input_keys = [input_key.key for input_key in request.input.inputKeys]
+    elif request.input.which() == "inputData":
+        input_bytes = [data.blob for data in request.input.inputData]
+        input_meta = [data.tensorDescriptor for data in request.input.inputData]
+
+    request = InferenceRequest(
+        model_key=model_key,
+        callback=comm_channel,
+        raw_inputs=input_bytes,
+        input_meta=input_meta,
+        input_keys=input_keys,
+        raw_model=model_bytes,
+        batch_size=0,
+        device=device,
+    )
+    return request
+
+
+def serialize_message(reply: InferenceReply) -> None:
+    if reply.failed:
+        return MessageHandler.build_response(
+            status=400,  # todo: need to indicate correct status
+            message="fail",  # todo: decide what these will be
+            result=[],
+            custom_attributes=None,
+        )
+
+    results = IntegratedTorchWorker._prepare_outputs(reply)
+
+    response = MessageHandler.build_response(
+        status=200,  # todo: are we satisfied with 0/1 (success, fail)
+        # todo: if not detailed messages, this shouldn't be returned.
+        message="success",
+        result=results,
+        custom_attributes=None,
+    )
+    serialized_resp = MessageHandler.serialize_response(response)
+    return serialized_resp
 
 
 class WorkerManager(ServiceHost):
@@ -59,6 +159,7 @@ class WorkerManager(ServiceHost):
         worker: MachineLearningWorkerBase,
         as_service: bool = False,
         cooldown: int = 0,
+        comm_channel_type: t.Type[CommChannel] = DragonCommChannel,
     ) -> None:
         """Initialize the WorkerManager
         :param feature_store: The persistence mechanism
@@ -78,6 +179,8 @@ class WorkerManager(ServiceHost):
         """a feature store to retrieve models from"""
         self._worker = worker
         """The ML Worker implementation"""
+        self._comm_channel_type = comm_channel_type
+        """The type of communication channel to construct for callbacks"""
 
     @property
     def upstream_queue(self) -> "t.Optional[mp.Queue[bytes]]":
@@ -89,6 +192,37 @@ class WorkerManager(ServiceHost):
         """Set/update the queue used by the worker manager to receive new work"""
         self._upstream_queue = value
 
+    def _build_failure_reply(self, status: int, message: str) -> InferenceReply:
+        return MessageHandler.build_response(
+            status=status,  # todo: need to indicate correct status
+            message=message,  # todo: decide what these will be
+            result=[],
+            custom_attributes=None,
+        )
+
+    def _prepare_outputs(self, reply: InferenceReply) -> t.List[t.Any]:
+        prepared_outputs: t.List[t.Any] = []
+        if reply.output_keys:
+            for key in reply.output_keys:
+                if not key:
+                    continue
+                msg_key = MessageHandler.build_tensor_key(key)
+                prepared_outputs.append(msg_key)
+        elif reply.outputs:
+            for output in reply.outputs:
+                tensor: torch.Tensor = output
+                # todo: need to have the output attributes specified in the req?
+                # maybe, add `MessageHandler.dtype_of(tensor)`?
+                # can `build_tensor` do dtype and shape?
+                msg_tensor = MessageHandler.build_tensor(
+                    tensor,
+                    "c",
+                    "float32",
+                    [1],
+                )
+                prepared_outputs.append(msg_tensor)
+        return prepared_outputs
+
     def _on_iteration(self, timestamp: int) -> None:
         """Executes calls to the machine learning worker implementation to complete
         the inference pipeline"""
@@ -98,45 +232,59 @@ class WorkerManager(ServiceHost):
             logger.warning("No queue to check for tasks")
             return
 
-        msg: bytes = self.upstream_queue.get()
-        request = self._worker.deserialize(msg)
+        # perform default deserialization of the message envelope
+        request_bytes: bytes = self.upstream_queue.get()
+        request = deserialize_message(request_bytes, self._comm_channel_type)
+
+        # # let the worker perform additional custom deserialization
+        # request = self._worker.deserialize(request_bytes)
+
         fetch_model_result = self._worker.fetch_model(request, self._feature_store)
         model_result = self._worker.load_model(request, fetch_model_result)
-        fetch_input_result = self._worker.fetch_inputs(
-            request,
-            self._feature_store,
-        )  # we don't know if they'lll fetch in some weird way
-        # they potentially need access to custom attributes
-        # we don't know what the response really is... i have it as bytes
-        # but we just want to advertise that the contract states "the output
-        # will be the input to transform_input... "
 
-        transform_result = self._worker.transform_input(request, fetch_input_result)
+        fetch_input_result = self._worker.fetch_inputs(request, self._feature_store)
+        transformed_input = self._worker.transform_input(request, fetch_input_result)
 
         # batch: t.Collection[_Datum] = transform_result.transformed_input
         # if self._batch_size:
         #     batch = self._worker.batch_requests(transform_result, self._batch_size)
 
-        # todo: what do we return here? tensors? Datum? bytes?
-        results = self._worker.execute(request, model_result, transform_result)
-
-        # todo: inference reply _must_ be replaced with the mli schemas reply
         reply = InferenceReply()
 
-        # only place into feature store if keys are provided
-        if request.output_keys:
-            output_keys = self._worker.place_output(
-                request, results, self._feature_store
+        try:
+            execute_result = self._worker.execute(
+                request, model_result, transformed_input
             )
-            reply.output_keys = output_keys
-        else:
-            reply.outputs = results.predictions
+        except Exception as ex:
+            logger.exception("Error executing worker")
+            reply = self._build_failure_reply(400, "error")
 
-        serialized_output = self._worker.serialize_reply(reply)
+        transformed_output = self._worker.transform_output(request, execute_result)
 
-        callback_channel = request.callback
-        if callback_channel:
-            callback_channel.send(serialized_output)
+        if callback_channel := request.callback:
+            if not reply.failed:
+                # only place into feature store if keys are provided
+                if request.output_keys:
+                    reply.output_keys = self._worker.place_output(
+                        request, transformed_output, self._feature_store
+                    )
+                else:
+                    reply.outputs = transformed_output.outputs
+
+                if transformed_output.outputs is None:
+                    reply = self._build_failure_reply(401, "no-results")
+
+            # serialized_output = self._worker.serialize_reply(request, transformed_output)
+            prepared_outputs = self._prepare_outputs(reply)
+            response = MessageHandler.build_response(
+                status=200,  # todo: are we satisfied with 0/1 (success, fail)
+                # todo: if not detailed messages, this shouldn't be returned.
+                message="success",
+                result=prepared_outputs,
+                custom_attributes=None,
+            )
+            serialized_resp = MessageHandler.serialize_response(response)
+            callback_channel.send(serialized_resp)
 
     def _can_shutdown(self) -> bool:
         """Return true when the criteria to shut down the service are met."""
@@ -172,13 +320,17 @@ def mock_work(worker_manager_queue: "mp.Queue[bytes]") -> None:
         worker_manager_queue.put(msg.encode("utf-8"))
 
 
-def persist_model_file(work_dir: str) -> pathlib.Path:
+def persist_model_file(model_path: pathlib.Path) -> pathlib.Path:
     """Create a simple torch model and persist to disk for
     testing purposes.
 
     TODO: remove once unit tests are in place"""
-    test_path = pathlib.Path(work_dir)
-    model_path = test_path / "basic.pt"
+    # test_path = pathlib.Path(work_dir)
+    if not model_path.parent.exists():
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+
+    model_path.unlink(missing_ok=True)
+    # model_path = test_path / "basic.pt"
 
     model = torch.nn.Linear(2, 1)
     torch.save(model, model_path)
@@ -187,12 +339,21 @@ def persist_model_file(work_dir: str) -> pathlib.Path:
 
 
 def mock_messages(
-    worker_manager_queue: "mp.Queue[bytes]", feature_store: FeatureStore, test_dir: str
+    worker_manager_queue: "mp.Queue[bytes]",
+    feature_store: FeatureStore,
+    fs_path: pathlib.Path,
+    comm_path: pathlib.Path,
 ) -> None:
     """Mock event producer for triggering the inference pipeline"""
     # todo: move to unit tests
-    model_key = "persisted-model"
-    model_bytes = persist_model_file(test_dir).read_bytes()
+    fs_path.mkdir(parents=True, exist_ok=True)
+    comm_path.mkdir(parents=True, exist_ok=True)
+
+    # model_name = "persisted-model"
+    model_path = persist_model_file(fs_path.parent / "model_original.pt")
+    model_bytes = model_path.read_bytes()
+    model_key = str(fs_path / "model_fs.pt")
+
     feature_store[model_key] = model_bytes
 
     iteration_number = 0
@@ -203,37 +364,30 @@ def mock_messages(
         # 1. for demo, ignore upstream and just put stuff into downstream
         # 2. for demo, only one downstream but we'd normally have to filter
         #       msg content and send to the correct downstream (worker) queue
-        timestamp = time.time_ns()
-        test_dir = "/lus/bnchlu1/mcbridch/tmp"
-        test_path = pathlib.Path(test_dir)
-        test_path.mkdir(parents=True, exist_ok=True)
-
-        mock_channel = test_path / f"brainstorm-{timestamp}.txt"
-        mock_model = test_path / "brainstorm.pt"
-
-        test_path.mkdir(parents=True, exist_ok=True)
-        mock_channel.touch()
-        mock_model.touch()
+        # timestamp = time.time_ns()
+        # mock_channel = test_path / f"brainstorm-{timestamp}.txt"
+        # mock_channel.touch()
 
         # thread - just look for key (wait for keys)
         # call checkpoint, try to get non-persistent key, it blocks
         # working set size > 1 has side-effects
         # only incurs cost when working set size has been exceeded
 
-        # msg = f"PyTorch:{mock_model}:MockInputToReplace:{mock_channel}"
-        # input_tensor = torch.randn(2)
-
         expected_device = "cpu"
-        channel_key = b"faux_channel_descriptor_bytes"
-        callback_channel = DragonCommChannel.find(channel_key)
+        channel_key = comm_path / f"{iteration_number}/channel.txt"
+        callback_channel = FileSystemCommChannel.find(str(channel_key).encode("utf-8"))
 
-        input_key = f"demo-{iteration_number}"
-        output_key = f"demo-{iteration_number}-out"
+        input_path = fs_path / f"{iteration_number}/input.pt"
+        output_path = fs_path / f"{iteration_number}/output.pt"
 
-        # feature_store[input_key] = input_tensor
+        input_key = str(input_path)
+        output_key = str(output_path)
 
-        # message_input_tensor =
-        # MessageHandler.build_tensor(input_tensor, "c", "float32", [2])
+        buffer = io.BytesIO()
+        tensor = torch.randn((1, 2), dtype=torch.float32)
+        torch.save(tensor, buffer)
+        feature_store[input_key] = buffer.getvalue()
+
         message_tensor_output_key = MessageHandler.build_tensor_key(output_key)
         message_tensor_input_key = MessageHandler.build_tensor_key(input_key)
         message_model_key = MessageHandler.build_model_key(model_key)
@@ -246,43 +400,42 @@ def mock_messages(
             outputs=[message_tensor_output_key],
             custom_attributes=None,
         )
-        worker_manager_queue.put(MessageHandler.serialize_request(request))
+        request_bytes = MessageHandler.serialize_request(request)
+        worker_manager_queue.put(request_bytes)
 
 
 if __name__ == "__main__":
     logging.basicConfig(filename="workermanager.log")
     # queue for communicating to the worker manager. used to
     # simulate messages "from the application"
+    test_dir = f"/lus/bnchlu1/mcbridch/tmp/{time.time_ns()}"
+    fs_path = pathlib.Path(test_dir) / "feature_store"
+    comm_path = pathlib.Path(test_dir) / "comm_store"
+
     upstream_queue: "mp.Queue[bytes]" = mp.Queue()
-
-    # downstream_queue = mp.Queue()  # the queue to forward messages to a given worker
-
     # torch_worker = SampleTorchWorker(downstream_queue)
     integrated_worker = IntegratedTorchWorker()
-
-    mem_fs = MemoryFeatureStore()
+    feature_store = FileSystemFeatureStore()
 
     worker_manager = WorkerManager(
-        mem_fs, integrated_worker, as_service=True, cooldown=10
+        feature_store,
+        integrated_worker,
+        as_service=True,
+        cooldown=10,
+        comm_channel_type=FileSystemCommChannel,
     )
-    # worker_manager = WorkerManager(dict_fs, as_service=True, cooldown=10)
-    # # configure what the manager listens to
-    # worker_manager.upstream_queue = upstream_queue
-    # # # and configure a worker ... moving...
-    # # will dynamically add a worker in the manager based on input msg backend
-    # # worker_manager.add_worker(torch_worker, downstream_queue)
+    worker_manager.upstream_queue = upstream_queue
 
-    # # create a pretend to populate the queues
+    # create a mock client application to populate the request queue
     # msg_pump = mp.Process(target=mock_work, args=(upstream_queue,))
     msg_pump = mp.Process(
-        target=mock_messages, args=(upstream_queue, mem_fs, "/lus/bnchlu1/mcbridch/tmp")
+        target=mock_messages, args=(upstream_queue, feature_store, fs_path, comm_path)
     )
     msg_pump.start()
 
-    # create a process to process commands
-    process = mp.Process(target=worker_manager.execute, args=(time.time_ns(),))
+    # # create a process to process commands
+    process = mp.Process(target=worker_manager.execute)
     process.start()
     process.join()
-
     msg_pump.kill()
     # logger.info(f"{DefaultTorchWorker.backend()=}")

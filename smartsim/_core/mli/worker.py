@@ -26,6 +26,7 @@
 
 import io
 import pickle
+from re import X
 import typing as t
 from abc import ABC, abstractmethod
 
@@ -54,6 +55,7 @@ class InferenceRequest:
         callback: t.Optional[CommChannel] = None,
         raw_inputs: t.Optional[t.List[bytes]] = None,
         input_keys: t.Optional[t.List[str]] = None,
+        input_meta: t.Optional[t.List[t.Any]] = None,
         output_keys: t.Optional[t.List[str]] = None,
         raw_model: t.Optional[bytes] = None,
         batch_size: int = 0,
@@ -65,6 +67,7 @@ class InferenceRequest:
         self.callback = callback
         self.raw_inputs = raw_inputs
         self.input_keys = input_keys or []
+        self.input_meta = input_meta or []
         self.output_keys = output_keys or []
         self.batch_size = batch_size
         self.device = device
@@ -118,7 +121,7 @@ class ExecuteResult:
 class InputFetchResult:
     """A wrapper around fetched inputs"""
 
-    def __init__(self, result: t.Any) -> None:
+    def __init__(self, result: t.List[bytes]) -> None:
         """Initialize the InputFetchResult"""
         self.inputs = result
 
@@ -126,7 +129,9 @@ class InputFetchResult:
 class OutputTransformResult:
     """A wrapper around inference results transformed for transmission"""
 
-    def __init__(self, result: t.Any) -> None:
+    def __init__(
+        self, result: t.Any, shape: t.Tuple[t.Any], order: str, dtype: str
+    ) -> None:
         """Initialize the OutputTransformResult"""
         self.outputs = result
 
@@ -222,19 +227,21 @@ class MachineLearningWorkerCore:
     @staticmethod
     def place_output(
         request: InferenceRequest,
-        execute_result: ExecuteResult,
+        transform_result: OutputTransformResult,
         feature_store: FeatureStore,
     ) -> t.Collection[t.Optional[str]]:
         """Given a collection of data, make it available as a shared resource in the
         feature store
         :param request: The request that triggered the pipeline
         :param execute_result: Results from inference
-        :param feature_store: The feature store used for persistence"""
+        :param feature_store: The feature store used for persistence
+        :return: A collection of keys that were placed in the feature store"""
         keys: t.List[t.Optional[str]] = []
         # need to decide how to get back to original sub-batch inputs so they can be
         # accurately placed, datum might need to include this.
 
-        for k, v in zip(request.output_keys, execute_result.predictions):
+        # Consider parallelizing all PUT feature_store operations
+        for k, v in zip(request.output_keys, transform_result.outputs):
             feature_store[k] = v
             keys.append(k)
 
@@ -245,13 +252,13 @@ class MachineLearningWorkerBase(MachineLearningWorkerCore, ABC):
     """Abstrct base class providing contract for a machine learning
     worker implementation."""
 
-    @staticmethod
-    @abstractmethod
-    def deserialize(data_blob: bytes) -> InferenceRequest:
-        """Given a collection of data serialized to bytes, convert the bytes
-        to a proper representation used by the ML backend
-        :param data_blob: inference request as a byte-serialized blob
-        :return: InferenceRequest deserialized from the input"""
+    # @staticmethod
+    # @abstractmethod
+    # def deserialize(request: InferenceRequest) -> InferenceRequest:
+    #     """Given a collection of data serialized to bytes, convert the bytes
+    #     to a proper representation used by the ML backend
+    #     :param data_blob: inference request as a byte-serialized blob
+    #     :return: InferenceRequest deserialized from the input"""
 
     @staticmethod
     @abstractmethod
@@ -300,7 +307,9 @@ class MachineLearningWorkerBase(MachineLearningWorkerCore, ABC):
 
     @staticmethod
     @abstractmethod
-    def serialize_reply(reply: InferenceReply) -> t.Any:
+    def serialize_reply(
+        request: InferenceRequest, results: OutputTransformResult
+    ) -> bytes:
         """Given an output, serialize to bytes for transport
         :param reply: The result of the inference pipeline
         :return: a byte-serialized version of the reply"""
@@ -310,8 +319,7 @@ class SampleTorchWorker(MachineLearningWorkerBase):
     """A minimum implementation of a worker that executes a PyTorch model"""
 
     @staticmethod
-    def deserialize(data_blob: bytes) -> InferenceRequest:
-        request: InferenceRequest = pickle.loads(data_blob)
+    def deserialize(request: InferenceRequest) -> InferenceRequest:
         return request
 
     @staticmethod
@@ -359,65 +367,21 @@ class SampleTorchWorker(MachineLearningWorkerBase):
         return OutputTransformResult(transformed)
 
     @staticmethod
-    def serialize_reply(reply: InferenceReply) -> t.Any:
-        return pickle.dumps(reply)
+    def serialize_reply(
+        request: InferenceRequest,  results: OutputTransformResult
+    ) -> bytes:
+        # return pickle.dumps(reply)
+        return pickle.dumps(results.outputs)
 
 
 class IntegratedTorchWorker(MachineLearningWorkerBase):
-
     """A minimum implementation of a worker that executes a PyTorch model"""
 
-    @staticmethod
-    def deserialize(data_blob: bytes) -> InferenceRequest:
-        # todo: consider moving to XxxCore and only making
-        # workers implement the inputs and model conversion?
-
-        # alternatively, consider passing the capnproto models
-        # to this method instead of the data_blob...
-
-        # something is definitely wrong here... client shouldn't have to touch
-        # callback (or batch size)
-
-        request = MessageHandler.deserialize_request(data_blob)
-        # return request
-        device = None
-        if request.device.which() == "deviceType":
-            device = request.device.deviceType
-
-        model_key: t.Optional[str] = None
-        model_bytes: t.Optional[bytes] = None
-
-        if request.model.which() == "modelKey":
-            model_key = request.model.modelKey.key
-        elif request.model.which() == "modelData":
-            model_bytes = request.model.modelData
-
-        callback_key = request.replyChannel.reply
-
-        # todo: shouldn't this be `CommChannel.find` instead of `DragonCommChannel`
-        comm_channel = DragonCommChannel.find(callback_key)
-        # comm_channel = DragonCommChannel(request.replyChannel)
-
-        input_keys: t.Optional[t.List[str]] = None
-        input_bytes: t.Optional[t.List[bytes]] = (
-            None  # these will really be tensors already
-        )
-
-        if request.input.which() == "inputKeys":
-            input_keys = [input_key.key for input_key in request.input.inputKeys]
-        elif request.input.which() == "inputData":
-            input_bytes = [data.blob for data in request.input.inputData]
-
-        inf_req = InferenceRequest(
-            model_key=model_key,
-            callback=comm_channel,
-            raw_inputs=input_bytes,
-            input_keys=input_keys,
-            raw_model=model_bytes,
-            batch_size=0,
-            device=device,
-        )
-        return inf_req
+    # @staticmethod
+    # def deserialize(request: InferenceRequest) -> t.List[t.Any]:
+    #     # request.input_meta
+    #     # request.raw_inputs
+    #     return request
 
     @staticmethod
     def load_model(
@@ -433,11 +397,17 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
 
     @staticmethod
     def transform_input(
-        request: InferenceRequest, fetch_result: InputFetchResult
+        request: InferenceRequest,
+        fetch_result: InputFetchResult,
     ) -> InputTransformResult:
-        result = [torch.load(io.BytesIO(item)) for item in fetch_result.inputs]
+        # extra metadata for assembly can be found in request.input_meta
+        raw_inputs = request.raw_inputs or fetch_result.inputs
+
+        result: t.List[torch.Tensor] = []
+        if raw_inputs:
+            result = [torch.load(io.BytesIO(item)) for item in raw_inputs]
+
         return InputTransformResult(result)
-        # return data # note: this fails copy test!
 
     @staticmethod
     def execute(
@@ -460,53 +430,56 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
         request: InferenceRequest,
         execute_result: ExecuteResult,
     ) -> OutputTransformResult:
-        transformed = [item.clone() for item in execute_result.predictions]
-        return OutputTransformResult(transformed)
+        # transformed = [item.clone() for item in execute_result.predictions]
+        # return OutputTransformResult(transformed)
+
+        # transformed = [item.bytes() for item in execute_result.predictions]
+
+        # OutputTransformResult.transformed SHOULD be a list of
+        # capnproto Tensors Or tensor descriptors accompanying bytes
+
+        # send the original tensors...
+        execute_result.predictions = [t.detach() for t in execute_result.predictions]
+        return OutputTransformResult(execute_result.predictions, [1], "c", "float32")
+        # return OutputTransformResult(transformed)
+
+    # @staticmethod
+    # def _prepare_outputs(transformed_outputs: OutputTransformResult) -> t.List[t.Any]:
+    #     prepared_outputs: t.List[t.Any] = []
+    #     if transformed_outputs.outputs:
+    #         for key in reply.output_keys:
+    #             if not key:
+    #                 continue
+    #             msg_key = MessageHandler.build_tensor_key(key)
+    #             prepared_outputs.append(msg_key)
+    #     elif reply.outputs:
+    #         for output in reply.outputs:
+    #             tensor: torch.Tensor = output
+    #             # todo: need to have the output attributes specified in the req?
+    #             # maybe, add `MessageHandler.dtype_of(tensor)`?
+    #             # can `build_tensor` do dtype and shape?
+    #             msg_tensor = MessageHandler.build_tensor(
+    #                 tensor,
+    #                 "c",
+    #                 "float32",
+    #                 [1],
+    #             )
+    #             prepared_outputs.append(msg_tensor)
+    #     return transformed_outputs
 
     @staticmethod
-    def _prepare_outputs(reply: InferenceReply) -> t.List[t.Any]:
-        results: t.List[t.Any] = []
-        if reply.output_keys:
-            for key in reply.output_keys:
-                if not key:
-                    continue
-                msg_key = MessageHandler.build_tensor_key(key)
-                results.append(msg_key)
-        elif reply.outputs:
-            for output in reply.outputs:
-                tensor: torch.Tensor = output
-                # todo: need to have the output attributes specified in the req?
-                # maybe, add `MessageHandler.dtype_of(tensor)`?
-                # can `build_tensor` do dtype and shape?
-                msg_tensor = MessageHandler.build_tensor(
-                    tensor,
-                    "c",
-                    "float32",
-                    [1],
-                )
-                results.append(msg_tensor)
-        return results
-
-    @staticmethod
-    def serialize_reply(reply: InferenceReply) -> t.Any:
-        # todo: consider moving to XxxCore and only making
-        # workers implement results-to-bytes
-        if reply.failed:
-            return MessageHandler.build_response(
-                status=400,  # todo: need to indicate correct status
-                message="fail",  # todo: decide what these will be
-                result=[],
-                custom_attributes=None,
-            )
-
-        results = IntegratedTorchWorker._prepare_outputs(reply)
-
-        response = MessageHandler.build_response(
-            status=200,  # todo: are we satisfied with 0/1 (success, fail)
-            # todo: if not detailed messages, this shouldn't be returned.
-            message="success",
-            result=results,
-            custom_attributes=None,
-        )
-        serialized_resp = MessageHandler.serialize_response(response)
-        return serialized_resp
+    def serialize_reply(
+        request: InferenceRequest, results: OutputTransformResult
+    ) -> t.Any:
+        # results = IntegratedTorchWorker._prepare_outputs(results.outputs)
+        # return results
+        return None
+        # response = MessageHandler.build_response(
+        #     status=200,  # todo: are we satisfied with 0/1 (success, fail)
+        #     # todo: if not detailed messages, this shouldn't be returned.
+        #     message="success",
+        #     result=results,
+        #     custom_attributes=None,
+        # )
+        # serialized_resp = MessageHandler.serialize_response(response)
+        # return serialized_resp

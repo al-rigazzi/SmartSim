@@ -24,6 +24,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pathlib
 import typing as t
 from abc import ABC, abstractmethod
 
@@ -111,6 +112,51 @@ class MemoryFeatureStore(FeatureStore):
         return key in self._storage
 
 
+class FileSystemFeatureStore(FeatureStore):
+    """Alternative feature store implementation for testing. Stores all
+    data on the file system"""
+
+    def __init__(self, storage_dir: t.Optional[pathlib.Path] = None) -> None:
+        """Initialize the FileSystemFeatureStore instance
+        :param storage_dir: (optional) root directory to store all data relative to"""
+        self._storage_dir = storage_dir
+
+    def __getitem__(self, key: str) -> bytes:
+        """Retrieve an item using key
+        :param key: Unique key of an item to retrieve from the feature store"""
+        path = self._key_path(key)
+        if not path.exists():
+            raise sse.SmartSimError(f"{path} not found in feature store")
+        return path.read_bytes()
+
+    def __setitem__(self, key: str, value: bytes) -> None:
+        """Assign a value using key
+        :param key: Unique key of an item to set in the feature store
+        :param value: Value to persist in the feature store"""
+        path = self._key_path(key, create=True)
+        path.write_bytes(value)
+
+    def __contains__(self, key: str) -> bool:
+        """Membership operator to test for a key existing within the feature store.
+        Return `True` if the key is found, `False` otherwise
+        :param key: Unique key of an item to retrieve from the feature store"""
+        path = self._key_path(key)
+        return path.exists()
+
+    def _key_path(self, key: str, create: bool = False) -> pathlib.Path:
+        """Given a key, return a path that is optionally combined with a base
+        directory used by the FileSystemFeatureStore.
+        :param key: Unique key of an item to retrieve from the feature store"""
+        value = pathlib.Path(key)
+
+        if self._storage_dir:
+            value = self._storage_dir / key
+
+        if create:
+            value.parent.mkdir(parents=True, exist_ok=True)
+
+        return value
+
 class DragonFeatureStore(FeatureStore):
     """A feature store backed by a dragon distributed dictionary"""
 
@@ -197,3 +243,31 @@ class DragonCommChannel(CommChannel):
         comm_channel = DragonCommChannel(key)
         comm_channel._descriptor = key
         return comm_channel
+
+
+class FileSystemCommChannel(CommChannel):
+    """Passes messages by writing to a file"""
+
+    def __init__(self, file_path: pathlib.Path) -> None:
+        """Initialize the FileSystemCommChannel instance"""
+        super().__init__(file_path.as_posix())
+        self._file_path = file_path
+
+        if not self._file_path.parent.exists():
+            self._file_path.parent.mkdir(parents=True)
+
+        self._file_path.touch()
+
+    def send(self, value: bytes) -> None:
+        """Send a message throuh the underlying communication channel
+        :param value: The value to send"""
+        self._file_path.write_bytes(value)
+
+    @classmethod
+    def find(cls, key: bytes) -> "CommChannel":
+        """Find a channel given its serialized key
+        :param key: The unique descriptor of a communications channel"""
+        channel_path = key.decode("utf-8")
+        channel_key = pathlib.Path(channel_path)
+
+        return FileSystemCommChannel(channel_key)
