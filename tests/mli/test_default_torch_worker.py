@@ -7,20 +7,14 @@ import pytest
 import torch
 
 import smartsim.error as sse
-from smartsim._core.mli import workermanager as mli
-from smartsim._core.mli.infrastructure import FeatureStore, MemoryFeatureStore
+from smartsim._core.mli.infrastructure import MemoryFeatureStore
 from smartsim._core.mli.worker import (
-    BatchResult,
     ExecuteResult,
     FetchModelResult,
-    InferenceReply,
     InferenceRequest,
     InputFetchResult,
     InputTransformResult,
-    IntegratedTorchWorker,
-    MachineLearningWorkerCore,
     ModelLoadResult,
-    OutputTransformResult,
     SampleTorchWorker,
 )
 from smartsim._core.utils import installed_redisai_backends
