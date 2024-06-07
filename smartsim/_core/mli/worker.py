@@ -364,6 +364,7 @@ class SampleTorchWorker(MachineLearningWorkerBase):
 
 
 class IntegratedTorchWorker(MachineLearningWorkerBase):
+
     """A minimum implementation of a worker that executes a PyTorch model"""
 
     @staticmethod
@@ -387,7 +388,7 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
         model_bytes: t.Optional[bytes] = None
 
         if request.model.which() == "modelKey":
-            model_key = request.model.modelKey
+            model_key = request.model.modelKey.key
         elif request.model.which() == "modelData":
             model_bytes = request.model.modelData
 
@@ -403,9 +404,9 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
         )
 
         if request.input.which() == "inputKeys":
-            input_keys = request.input.inputKeys
+            input_keys = [input_key.key for input_key in request.input.inputKeys]
         elif request.input.which() == "inputData":
-            input_bytes = request.input.inputData
+            input_bytes = [data.blob for data in request.input.inputData]
 
         inf_req = InferenceRequest(
             model_key=model_key,
@@ -464,7 +465,7 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
 
     @staticmethod
     def _prepare_outputs(reply: InferenceReply) -> t.List[t.Any]:
-        results = []
+        results: t.List[t.Any] = []
         if reply.output_keys:
             for key in reply.output_keys:
                 if not key:
