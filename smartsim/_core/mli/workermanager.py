@@ -178,7 +178,7 @@ class WorkerManager(ServiceHost):
         self,
         feature_store: FeatureStore,
         worker: MachineLearningWorkerBase,
-        upstream_queue: mp.Queue,
+        task_queue: mp.Queue,
         as_service: bool = False,
         cooldown: int = 0,
         comm_channel_type: t.Type[CommChannel] = DragonCommChannel,
@@ -195,7 +195,7 @@ class WorkerManager(ServiceHost):
             []
         )
         """a collection of workers the manager is controlling"""
-        self._upstream_queue: upstream_queue = upstream_queue
+        self._task_queue: task_queue = task_queue
         """the queue the manager monitors for new tasks"""
         self._feature_store: FeatureStore = feature_store
         """a feature store to retrieve models from"""
@@ -204,27 +204,17 @@ class WorkerManager(ServiceHost):
         self._comm_channel_type = comm_channel_type
         """The type of communication channel to construct for callbacks"""
 
-    @property
-    def upstream_queue(self) -> "t.Optional[mp.Queue[bytes]]":
-        """Return the queue used by the worker manager to receive new work"""
-        return self._upstream_queue
-
-    @upstream_queue.setter
-    def upstream_queue(self, value: "mp.Queue[bytes]") -> None:
-        """Set/update the queue used by the worker manager to receive new work"""
-        self._upstream_queue = value
-
     def _on_iteration(self, timestamp: int) -> None:
         """Executes calls to the machine learning worker implementation to complete
         the inference pipeline"""
         logger.debug(f"{timestamp} executing worker manager pipeline")
 
-        if self.upstream_queue is None:
+        if self._task_queue is None:
             logger.warning("No queue to check for tasks")
             return
 
         # perform default deserialization of the message envelope
-        request_bytes: bytes = self.upstream_queue.get()
+        request_bytes: bytes = self._task_queue.get()
         request = deserialize_message(request_bytes, self._comm_channel_type)
         if not request.callback:
             logger.error("No callback channel provided in request")
@@ -394,15 +384,16 @@ def mock_messages(
 
 
 if __name__ == "__main__":
+
     def prepare_environment() -> pathlib.Path:
         """Cleanup prior outputs to run demo repeatedly"""
-        test_path = pathlib.Path("/lus/bnchlu1/mcbridch/code/ss/_tmp")
-        if test_path.exists():
-            shutil.rmtree(test_path)  # clean up prior results
+        path = pathlib.Path("/lus/bnchlu1/mcbridch/code/ss/_tmp")
+        if path.exists():
+            shutil.rmtree(path)  # clean up prior results
 
-        test_path.mkdir(parents=True)
-        logging.basicConfig(filename=str(test_path / "workermanager.log"))
-        return test_path
+        path.mkdir(parents=True)
+        logging.basicConfig(filename=str(path / "workermanager.log"))
+        return path
 
     test_path = prepare_environment()
     fs_path = test_path / "feature_store"
