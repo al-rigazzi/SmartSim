@@ -195,7 +195,7 @@ class WorkerManager(ServiceHost):
             []
         )
         """a collection of workers the manager is controlling"""
-        self._task_queue: task_queue = task_queue
+        self._task_queue: "mp.Queue[bytes]" = task_queue
         """the queue the manager monitors for new tasks"""
         self._feature_store: FeatureStore = feature_store
         """a feature store to retrieve models from"""
@@ -273,7 +273,7 @@ class WorkerManager(ServiceHost):
         self, worker: MachineLearningWorkerBase, upstream_queue: "mp.Queue[bytes]"
     ) -> None:
         """Add a worker instance to the collection managed by the WorkerManager"""
-        self._workers.append(worker, upstream_queue)
+        self._workers.append((worker, upstream_queue))
 
 
 def mock_work(worker_manager_queue: "mp.Queue[bytes]") -> None:
