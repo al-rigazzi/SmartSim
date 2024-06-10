@@ -25,8 +25,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import io
-import pickle
-from re import X
 import typing as t
 from abc import ABC, abstractmethod
 
@@ -35,13 +33,7 @@ import torch
 import smartsim.error as sse
 from smartsim.log import get_logger
 
-from .infrastructure import CommChannel, DragonCommChannel, FeatureStore
-from .message_handler import MessageHandler
-
-if t.TYPE_CHECKING:
-    import dragon.channels as dch
-    import dragon.utils as du
-
+from .infrastructure import CommChannel, FeatureStore
 
 logger = get_logger(__name__)
 
@@ -130,10 +122,14 @@ class OutputTransformResult:
     """A wrapper around inference results transformed for transmission"""
 
     def __init__(
-        self, result: t.Any, shape: t.Tuple[t.Any], order: str, dtype: str
+        self, result: t.Any, shape: t.List[int], order: str, dtype: str
     ) -> None:
         """Initialize the OutputTransformResult"""
         self.outputs = result
+        self.shape = shape
+        self.order = order
+        self.dtype = dtype
+        # todo: determine if each output must have an individual (shape, order, dtype)
 
 
 class BatchResult:
@@ -241,7 +237,7 @@ class MachineLearningWorkerCore:
         # accurately placed, datum might need to include this.
 
         # Consider parallelizing all PUT feature_store operations
-        for k, v in zip(request.output_keys, transform_result.outputs):
+        for k, v in zip(request.output_keys, transform_result.transformed):
             feature_store[k] = v
             keys.append(k)
 
@@ -305,14 +301,14 @@ class MachineLearningWorkerBase(MachineLearningWorkerCore, ABC):
         :param execute_result: The result of inference wrapped in an ExecuteResult
         :return:"""
 
-    @staticmethod
-    @abstractmethod
-    def serialize_reply(
-        request: InferenceRequest, results: OutputTransformResult
-    ) -> bytes:
-        """Given an output, serialize to bytes for transport
-        :param reply: The result of the inference pipeline
-        :return: a byte-serialized version of the reply"""
+    # @staticmethod
+    # @abstractmethod
+    # def serialize_reply(
+    #     request: InferenceRequest, results: OutputTransformResult
+    # ) -> bytes:
+    #     """Given an output, serialize to bytes for transport
+    #     :param reply: The result of the inference pipeline
+    #     :return: a byte-serialized version of the reply"""
 
 
 class SampleTorchWorker(MachineLearningWorkerBase):
@@ -364,14 +360,15 @@ class SampleTorchWorker(MachineLearningWorkerBase):
         execute_result: ExecuteResult,
     ) -> OutputTransformResult:
         transformed = [item.clone() for item in execute_result.predictions]
-        return OutputTransformResult(transformed)
+        # todo: need the shape from latest schemas added here.
+        return OutputTransformResult(transformed, [1, 1, 1], "c", "float32")  # fixme
 
-    @staticmethod
-    def serialize_reply(
-        request: InferenceRequest,  results: OutputTransformResult
-    ) -> bytes:
-        # return pickle.dumps(reply)
-        return pickle.dumps(results.outputs)
+    # @staticmethod
+    # def serialize_reply(
+    #     request: InferenceRequest, results: OutputTransformResult
+    # ) -> bytes:
+    #     # return pickle.dumps(reply)
+    #     return pickle.dumps(results.outputs)
 
 
 class IntegratedTorchWorker(MachineLearningWorkerBase):
@@ -444,42 +441,18 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
         # return OutputTransformResult(transformed)
 
     # @staticmethod
-    # def _prepare_outputs(transformed_outputs: OutputTransformResult) -> t.List[t.Any]:
-    #     prepared_outputs: t.List[t.Any] = []
-    #     if transformed_outputs.outputs:
-    #         for key in reply.output_keys:
-    #             if not key:
-    #                 continue
-    #             msg_key = MessageHandler.build_tensor_key(key)
-    #             prepared_outputs.append(msg_key)
-    #     elif reply.outputs:
-    #         for output in reply.outputs:
-    #             tensor: torch.Tensor = output
-    #             # todo: need to have the output attributes specified in the req?
-    #             # maybe, add `MessageHandler.dtype_of(tensor)`?
-    #             # can `build_tensor` do dtype and shape?
-    #             msg_tensor = MessageHandler.build_tensor(
-    #                 tensor,
-    #                 "c",
-    #                 "float32",
-    #                 [1],
-    #             )
-    #             prepared_outputs.append(msg_tensor)
-    #     return transformed_outputs
-
-    @staticmethod
-    def serialize_reply(
-        request: InferenceRequest, results: OutputTransformResult
-    ) -> t.Any:
-        # results = IntegratedTorchWorker._prepare_outputs(results.outputs)
-        # return results
-        return None
-        # response = MessageHandler.build_response(
-        #     status=200,  # todo: are we satisfied with 0/1 (success, fail)
-        #     # todo: if not detailed messages, this shouldn't be returned.
-        #     message="success",
-        #     result=results,
-        #     custom_attributes=None,
-        # )
-        # serialized_resp = MessageHandler.serialize_response(response)
-        # return serialized_resp
+    # def serialize_reply(
+    #     request: InferenceRequest, results: OutputTransformResult
+    # ) -> t.Any:
+    #     # results = IntegratedTorchWorker._prepare_outputs(results.outputs)
+    #     # return results
+    #     return None
+    #     # response = MessageHandler.build_response(
+    #     #     status=200,  # todo: are we satisfied with 0/1 (success, fail)
+    #     #     # todo: if not detailed messages, this shouldn't be returned.
+    #     #     message="success",
+    #     #     result=results,
+    #     #     custom_attributes=None,
+    #     # )
+    #     # serialized_resp = MessageHandler.serialize_response(response)
+    #     # return serialized_resp

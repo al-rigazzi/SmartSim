@@ -28,30 +28,29 @@ import io
 import logging
 import multiprocessing as mp
 import pathlib
+import shutil
 import time
 import typing as t
-import uuid
 
 import torch
 
-
-from smartsim.log import get_logger
-
 from smartsim._core.mli.infrastructure import (
+    CommChannel,
     DragonCommChannel,
     FeatureStore,
-    FileSystemFeatureStore,
     FileSystemCommChannel,
-    CommChannel,
+    FileSystemFeatureStore,
 )
 from smartsim._core.mli.message_handler import MessageHandler
+from smartsim._core.mli.mli_schemas.response.response_capnp import Response
 from smartsim._core.mli.util import ServiceHost
 from smartsim._core.mli.worker import (
     InferenceReply,
     InferenceRequest,
-    MachineLearningWorkerBase,
     IntegratedTorchWorker,
+    MachineLearningWorkerBase,
 )
+from smartsim.log import get_logger
 
 if t.TYPE_CHECKING:
     import dragon.channels as dch
@@ -114,7 +113,7 @@ def deserialize_message(
         input_bytes = [data.blob for data in request.input.inputData]
         input_meta = [data.tensorDescriptor for data in request.input.inputData]
 
-    request = InferenceRequest(
+    inference_request = InferenceRequest(
         model_key=model_key,
         callback=comm_channel,
         raw_inputs=input_bytes,
@@ -124,29 +123,51 @@ def deserialize_message(
         batch_size=0,
         device=device,
     )
-    return request
+    return inference_request
 
 
-def serialize_message(reply: InferenceReply) -> None:
-    if reply.failed:
-        return MessageHandler.build_response(
-            status=400,  # todo: need to indicate correct status
-            message="fail",  # todo: decide what these will be
-            result=[],
-            custom_attributes=None,
-        )
+def build_failure_reply(status: int, message: str) -> Response:
+    return MessageHandler.build_response(
+        status=status,  # todo: need to indicate correct status
+        message=message,  # todo: decide what these will be
+        result=[],
+        custom_attributes=None,
+    )
 
-    results = IntegratedTorchWorker._prepare_outputs(reply)
 
-    response = MessageHandler.build_response(
-        status=200,  # todo: are we satisfied with 0/1 (success, fail)
-        # todo: if not detailed messages, this shouldn't be returned.
+def prepare_outputs(reply: InferenceReply) -> t.List[t.Any]:
+    prepared_outputs: t.List[t.Any] = []
+    if reply.output_keys:
+        for key in reply.output_keys:
+            if not key:
+                continue
+            msg_key = MessageHandler.build_tensor_key(key)
+            prepared_outputs.append(msg_key)
+    elif reply.outputs:
+        for output in reply.outputs:
+            tensor: torch.Tensor = output
+            # todo: need to have the output attributes specified in the req?
+            # maybe, add `MessageHandler.dtype_of(tensor)`?
+            # can `build_tensor` do dtype and shape?
+            msg_tensor = MessageHandler.build_tensor(
+                tensor,
+                "c",
+                "float32",
+                [1],
+            )
+            prepared_outputs.append(msg_tensor)
+    return prepared_outputs
+
+
+def build_reply(reply: InferenceReply) -> Response:
+    results = prepare_outputs(reply)
+
+    return MessageHandler.build_response(
+        status=200,
         message="success",
         result=results,
         custom_attributes=None,
     )
-    serialized_resp = MessageHandler.serialize_response(response)
-    return serialized_resp
 
 
 class WorkerManager(ServiceHost):
@@ -157,6 +178,7 @@ class WorkerManager(ServiceHost):
         self,
         feature_store: FeatureStore,
         worker: MachineLearningWorkerBase,
+        upstream_queue: mp.Queue,
         as_service: bool = False,
         cooldown: int = 0,
         comm_channel_type: t.Type[CommChannel] = DragonCommChannel,
@@ -169,11 +191,11 @@ class WorkerManager(ServiceHost):
         shutdown criteria are met"""
         super().__init__(as_service, cooldown)
 
-        self._workers: t.Dict[
-            str, "t.Tuple[MachineLearningWorkerBase, mp.Queue[bytes]]"
-        ] = {}
+        self._workers: t.List["t.Tuple[MachineLearningWorkerBase, mp.Queue[bytes]]"] = (
+            []
+        )
         """a collection of workers the manager is controlling"""
-        self._upstream_queue: t.Optional[mp.Queue[bytes]] = None
+        self._upstream_queue: upstream_queue = upstream_queue
         """the queue the manager monitors for new tasks"""
         self._feature_store: FeatureStore = feature_store
         """a feature store to retrieve models from"""
@@ -192,37 +214,6 @@ class WorkerManager(ServiceHost):
         """Set/update the queue used by the worker manager to receive new work"""
         self._upstream_queue = value
 
-    def _build_failure_reply(self, status: int, message: str) -> InferenceReply:
-        return MessageHandler.build_response(
-            status=status,  # todo: need to indicate correct status
-            message=message,  # todo: decide what these will be
-            result=[],
-            custom_attributes=None,
-        )
-
-    def _prepare_outputs(self, reply: InferenceReply) -> t.List[t.Any]:
-        prepared_outputs: t.List[t.Any] = []
-        if reply.output_keys:
-            for key in reply.output_keys:
-                if not key:
-                    continue
-                msg_key = MessageHandler.build_tensor_key(key)
-                prepared_outputs.append(msg_key)
-        elif reply.outputs:
-            for output in reply.outputs:
-                tensor: torch.Tensor = output
-                # todo: need to have the output attributes specified in the req?
-                # maybe, add `MessageHandler.dtype_of(tensor)`?
-                # can `build_tensor` do dtype and shape?
-                msg_tensor = MessageHandler.build_tensor(
-                    tensor,
-                    "c",
-                    "float32",
-                    [1],
-                )
-                prepared_outputs.append(msg_tensor)
-        return prepared_outputs
-
     def _on_iteration(self, timestamp: int) -> None:
         """Executes calls to the machine learning worker implementation to complete
         the inference pipeline"""
@@ -235,6 +226,9 @@ class WorkerManager(ServiceHost):
         # perform default deserialization of the message envelope
         request_bytes: bytes = self.upstream_queue.get()
         request = deserialize_message(request_bytes, self._comm_channel_type)
+        if not request.callback:
+            logger.error("No callback channel provided in request")
+            return
 
         # # let the worker perform additional custom deserialization
         # request = self._worker.deserialize(request_bytes)
@@ -255,46 +249,41 @@ class WorkerManager(ServiceHost):
             execute_result = self._worker.execute(
                 request, model_result, transformed_input
             )
-        except Exception as ex:
+        except Exception:
             logger.exception("Error executing worker")
-            reply = self._build_failure_reply(400, "error")
+            reply = build_failure_reply(400, "error")
 
         transformed_output = self._worker.transform_output(request, execute_result)
 
-        if callback_channel := request.callback:
-            if not reply.failed:
-                # only place into feature store if keys are provided
-                if request.output_keys:
-                    reply.output_keys = self._worker.place_output(
-                        request, transformed_output, self._feature_store
-                    )
-                else:
-                    reply.outputs = transformed_output.outputs
+        if reply.failed:
+            response = build_failure_reply(400, "fail")
+        else:
+            # only place into feature store if keys are provided
+            if request.output_keys:
+                reply.output_keys = self._worker.place_output(
+                    request, transformed_output, self._feature_store
+                )
+            else:
+                reply.outputs = transformed_output.outputs
 
-                if transformed_output.outputs is None:
-                    reply = self._build_failure_reply(401, "no-results")
+            if transformed_output.outputs is None:
+                reply = build_failure_reply(401, "no-results")
 
-            # serialized_output = self._worker.serialize_reply(request, transformed_output)
-            prepared_outputs = self._prepare_outputs(reply)
-            response = MessageHandler.build_response(
-                status=200,  # todo: are we satisfied with 0/1 (success, fail)
-                # todo: if not detailed messages, this shouldn't be returned.
-                message="success",
-                result=prepared_outputs,
-                custom_attributes=None,
-            )
-            serialized_resp = MessageHandler.serialize_response(response)
-            callback_channel.send(serialized_resp)
+            response = build_reply(reply)
+
+        # serialized = self._worker.serialize_reply(request, transformed_output)
+        serialized_resp = MessageHandler.serialize_response(response)
+        request.callback.send(serialized_resp)
 
     def _can_shutdown(self) -> bool:
         """Return true when the criteria to shut down the service are met."""
         return bool(self._workers)
 
     def add_worker(
-        self, worker: MachineLearningWorkerBase, work_queue: "mp.Queue[bytes]"
+        self, worker: MachineLearningWorkerBase, upstream_queue: "mp.Queue[bytes]"
     ) -> None:
         """Add a worker instance to the collection managed by the WorkerManager"""
-        self._workers[str(uuid.uuid4())] = (worker, work_queue)
+        self._workers.append(worker, upstream_queue)
 
 
 def mock_work(worker_manager_queue: "mp.Queue[bytes]") -> None:
@@ -306,13 +295,13 @@ def mock_work(worker_manager_queue: "mp.Queue[bytes]") -> None:
         # 2. for demo, only one downstream but we'd normally have to filter
         #       msg content and send to the correct downstream (worker) queue
         timestamp = time.time_ns()
-        work_dir = "/lus/bnchlu1/mcbridch/code/ss/tests/test_output/brainstorm"
-        test_path = pathlib.Path(work_dir)
+        output_dir = "/lus/bnchlu1/mcbridch/code/ss/_tmp"
+        output_path = pathlib.Path(output_dir)
 
-        mock_channel = test_path / f"brainstorm-{timestamp}.txt"
-        mock_model = test_path / "brainstorm.pt"
+        mock_channel = output_path / f"brainstorm-{timestamp}.txt"
+        mock_model = output_path / "brainstorm.pt"
 
-        test_path.mkdir(parents=True, exist_ok=True)
+        output_path.mkdir(parents=True, exist_ok=True)
         mock_channel.touch()
         mock_model.touch()
 
@@ -341,18 +330,18 @@ def persist_model_file(model_path: pathlib.Path) -> pathlib.Path:
 def mock_messages(
     worker_manager_queue: "mp.Queue[bytes]",
     feature_store: FeatureStore,
-    fs_path: pathlib.Path,
-    comm_path: pathlib.Path,
+    feature_store_root_dir: pathlib.Path,
+    comm_channel_root_dir: pathlib.Path,
 ) -> None:
     """Mock event producer for triggering the inference pipeline"""
     # todo: move to unit tests
-    fs_path.mkdir(parents=True, exist_ok=True)
-    comm_path.mkdir(parents=True, exist_ok=True)
+    feature_store_root_dir.mkdir(parents=True, exist_ok=True)
+    comm_channel_root_dir.mkdir(parents=True, exist_ok=True)
 
     # model_name = "persisted-model"
-    model_path = persist_model_file(fs_path.parent / "model_original.pt")
+    model_path = persist_model_file(feature_store_root_dir.parent / "model_original.pt")
     model_bytes = model_path.read_bytes()
-    model_key = str(fs_path / "model_fs.pt")
+    model_key = str(feature_store_root_dir / "model_fs.pt")
 
     feature_store[model_key] = model_bytes
 
@@ -374,11 +363,11 @@ def mock_messages(
         # only incurs cost when working set size has been exceeded
 
         expected_device = "cpu"
-        channel_key = comm_path / f"{iteration_number}/channel.txt"
+        channel_key = comm_channel_root_dir / f"{iteration_number}/channel.txt"
         callback_channel = FileSystemCommChannel.find(str(channel_key).encode("utf-8"))
 
-        input_path = fs_path / f"{iteration_number}/input.pt"
-        output_path = fs_path / f"{iteration_number}/output.pt"
+        input_path = feature_store_root_dir / f"{iteration_number}/input.pt"
+        output_path = feature_store_root_dir / f"{iteration_number}/output.pt"
 
         input_key = str(input_path)
         output_key = str(output_path)
@@ -405,31 +394,39 @@ def mock_messages(
 
 
 if __name__ == "__main__":
-    logging.basicConfig(filename="workermanager.log")
-    # queue for communicating to the worker manager. used to
-    # simulate messages "from the application"
-    test_dir = f"/lus/bnchlu1/mcbridch/tmp/{time.time_ns()}"
-    fs_path = pathlib.Path(test_dir) / "feature_store"
-    comm_path = pathlib.Path(test_dir) / "comm_store"
+    def prepare_environment() -> pathlib.Path:
+        """Cleanup prior outputs to run demo repeatedly"""
+        test_path = pathlib.Path("/lus/bnchlu1/mcbridch/code/ss/_tmp")
+        if test_path.exists():
+            shutil.rmtree(test_path)  # clean up prior results
 
-    upstream_queue: "mp.Queue[bytes]" = mp.Queue()
+        test_path.mkdir(parents=True)
+        logging.basicConfig(filename=str(test_path / "workermanager.log"))
+        return test_path
+
+    test_path = prepare_environment()
+    fs_path = test_path / "feature_store"
+    comm_path = test_path / "comm_store"
+
+    work_queue: "mp.Queue[bytes]" = mp.Queue()
     # torch_worker = SampleTorchWorker(downstream_queue)
     integrated_worker = IntegratedTorchWorker()
-    feature_store = FileSystemFeatureStore()
+    file_system_store = FileSystemFeatureStore()
 
     worker_manager = WorkerManager(
-        feature_store,
+        file_system_store,
         integrated_worker,
+        work_queue,
         as_service=True,
         cooldown=10,
         comm_channel_type=FileSystemCommChannel,
     )
-    worker_manager.upstream_queue = upstream_queue
 
     # create a mock client application to populate the request queue
-    # msg_pump = mp.Process(target=mock_work, args=(upstream_queue,))
+    # msg_pump = mp.Process(target=mock_work, args=(work_queue,))
     msg_pump = mp.Process(
-        target=mock_messages, args=(upstream_queue, feature_store, fs_path, comm_path)
+        target=mock_messages,
+        args=(work_queue, file_system_store, fs_path, comm_path),
     )
     msg_pump.start()
 

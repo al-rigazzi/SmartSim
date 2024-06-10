@@ -38,20 +38,20 @@ def persist_torch_model(test_dir: str) -> pathlib.Path:
     return model_path
 
 
-def test_deserialize() -> None:
-    """Verify that serialized requests are properly deserialized to
-    and converted to the internal representation used by ML workers"""
-    worker = SampleTorchWorker
-    buffer = io.BytesIO()
+# def test_deserialize() -> None:
+#     """Verify that serialized requests are properly deserialized to
+#     and converted to the internal representation used by ML workers"""
+#     worker = SampleTorchWorker
+#     buffer = io.BytesIO()
 
-    exp_model_key = "model-key"
-    msg = InferenceRequest(model_key=exp_model_key)
-    pickle.dump(msg, buffer)
+#     exp_model_key = "model-key"
+#     msg = InferenceRequest(model_key=exp_model_key)
+#     pickle.dump(msg, buffer)
 
-    deserialized: InferenceRequest = worker.deserialize(buffer.getvalue())
+#     deserialized: InferenceRequest = worker.deserialize(buffer.getvalue())
 
-    assert deserialized.model_key == exp_model_key
-    # assert deserialized.backend == exp_backend
+#     assert deserialized.model_key == exp_model_key
+#     # assert deserialized.backend == exp_backend
 
 
 @pytest.mark.skipif(not torch_available, reason="Torch backend is not installed")

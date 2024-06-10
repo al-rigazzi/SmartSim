@@ -8,8 +8,8 @@ import torch
 import smartsim.error as sse
 from smartsim._core.mli.infrastructure import (
     FeatureStore,
-    MemoryFeatureStore,
     FileSystemFeatureStore,
+    MemoryFeatureStore,
 )
 from smartsim._core.mli.worker import (
     ExecuteResult,
@@ -291,9 +291,9 @@ def test_place_outputs() -> None:
         feature_store[k] = v
 
     request = InferenceRequest(output_keys=keys)
-    execute_result = ExecuteResult(data)
+    transform_result = InputTransformResult(data)
 
-    worker.place_output(request, execute_result, feature_store)
+    worker.place_output(request, transform_result, feature_store)
 
     for i in range(3):
         assert feature_store[keys[i]] == data[i]

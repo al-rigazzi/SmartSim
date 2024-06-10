@@ -157,6 +157,7 @@ class FileSystemFeatureStore(FeatureStore):
 
         return value
 
+
 class DragonFeatureStore(FeatureStore):
     """A feature store backed by a dragon distributed dictionary"""
 
@@ -227,12 +228,6 @@ class DragonCommChannel(CommChannel):
         """Send a message throuh the underlying communication channel
         :param value: The value to send"""
         self._channel.send_bytes(value)
-
-    # @property
-    # def key(self) -> str:
-    #     """Return the channel descriptor for the underlying dragon channel"""
-    #     descriptor = du.B64.bytes_to_str(self._channel.serialize())
-    #     return descriptor
 
     @classmethod
     def find(cls, key: bytes) -> "CommChannel":
