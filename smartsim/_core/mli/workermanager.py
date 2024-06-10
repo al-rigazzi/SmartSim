@@ -178,7 +178,7 @@ class WorkerManager(ServiceHost):
         self,
         feature_store: FeatureStore,
         worker: MachineLearningWorkerBase,
-        task_queue: mp.Queue,
+        task_queue: "mp.Queue[bytes]",
         as_service: bool = False,
         cooldown: int = 0,
         comm_channel_type: t.Type[CommChannel] = DragonCommChannel,
@@ -204,10 +204,10 @@ class WorkerManager(ServiceHost):
         self._comm_channel_type = comm_channel_type
         """The type of communication channel to construct for callbacks"""
 
-    def _on_iteration(self, timestamp: int) -> None:
+    def _on_iteration(self) -> None:
         """Executes calls to the machine learning worker implementation to complete
         the inference pipeline"""
-        logger.debug(f"{timestamp} executing worker manager pipeline")
+        logger.debug("executing worker manager pipeline")
 
         if self._task_queue is None:
             logger.warning("No queue to check for tasks")
@@ -239,25 +239,24 @@ class WorkerManager(ServiceHost):
             execute_result = self._worker.execute(
                 request, model_result, transformed_input
             )
-        except Exception:
-            logger.exception("Error executing worker")
-            reply = build_failure_reply(400, "error")
 
-        transformed_output = self._worker.transform_output(request, execute_result)
+            transformed_output = self._worker.transform_output(request, execute_result)
 
-        if reply.failed:
-            response = build_failure_reply(400, "fail")
-        else:
-            # only place into feature store if keys are provided
             if request.output_keys:
                 reply.output_keys = self._worker.place_output(
                     request, transformed_output, self._feature_store
                 )
             else:
                 reply.outputs = transformed_output.outputs
+        except Exception:
+            logger.exception("Error executing worker")
+            reply.failed = True
 
-            if transformed_output.outputs is None:
-                reply = build_failure_reply(401, "no-results")
+        if reply.failed:
+            response = build_failure_reply(400, "fail")
+        else:
+            if reply.outputs is None or not reply.outputs:
+                response = build_failure_reply(401, "no-results")
 
             response = build_reply(reply)
 
@@ -352,7 +351,7 @@ def mock_messages(
         # working set size > 1 has side-effects
         # only incurs cost when working set size has been exceeded
 
-        expected_device = "cpu"
+        expected_device: t.Literal["cpu", "gpu"] = "cpu"
         channel_key = comm_channel_root_dir / f"{iteration_number}/channel.txt"
         callback_channel = FileSystemCommChannel.find(str(channel_key).encode("utf-8"))
 

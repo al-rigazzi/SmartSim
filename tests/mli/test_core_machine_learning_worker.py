@@ -6,16 +6,12 @@ import pytest
 import torch
 
 import smartsim.error as sse
-from smartsim._core.mli.infrastructure import (
-    FeatureStore,
-    FileSystemFeatureStore,
-    MemoryFeatureStore,
-)
+from smartsim._core.mli.infrastructure import FileSystemFeatureStore, MemoryFeatureStore
 from smartsim._core.mli.worker import (
-    ExecuteResult,
     InferenceRequest,
     InputTransformResult,
     MachineLearningWorkerCore,
+    OutputTransformResult,
 )
 from smartsim._core.utils import installed_redisai_backends
 
@@ -291,7 +287,7 @@ def test_place_outputs() -> None:
         feature_store[k] = v
 
     request = InferenceRequest(output_keys=keys)
-    transform_result = InputTransformResult(data)
+    transform_result = OutputTransformResult(data, [1], "c", "float32")
 
     worker.place_output(request, transform_result, feature_store)
 

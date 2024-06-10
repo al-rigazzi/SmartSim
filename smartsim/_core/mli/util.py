@@ -24,7 +24,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import datetime
 import time
+import typing as t
 from abc import ABC, abstractmethod
 
 from smartsim.log import get_logger
@@ -54,10 +56,9 @@ class ServiceHost(ABC):
         """Forced delay between iterations of the event loop"""
 
     @abstractmethod
-    def _on_iteration(self, timestamp: int) -> None:
+    def _on_iteration(self) -> None:
         """The user-defined event handler. Executed repeatedly until shutdown
         conditions are satisfied and cooldown is elapsed.
-        :param timestamp: the timestamp at the start of the event loop iteration
         """
 
     @abstractmethod
@@ -79,54 +80,44 @@ class ServiceHost(ABC):
         iteration immediately upon exceeding the cooldown period"""
         logger.debug(f"Cooldown exceeded by {self.__class__.__name__}")
 
+    def _log_cooldown(self, elapsed: float) -> None:
+        """Log the remaining cooldown time, if any"""
+        remaining = self._cooldown - elapsed
+        if remaining > 0:
+            logger.debug(f"{abs(remaining):.2f}s remains of {self._cooldown}s cooldown")
+        else:
+            logger.info(f"exceeded cooldown {self._cooldown}s by {abs(remaining):.2f}s")
+
     def execute(self) -> None:
         """The main event loop of a service host. Evaluates shutdown criteria and
         combines with a cooldown period to allow automatic service termination.
         Responsible for executing calls to subclass implementation of `_on_iteration`"""
         self._on_start()
 
-        start_ts = time.time_ns()
-        last_ts = start_ts
         running = True
-        elapsed_cooldown = 0
-        nanosecond_scale_factor = 1000000000
-        cooldown_ns = self._cooldown * nanosecond_scale_factor
-
-        # if we're run-once, use cooldown to short circuit
-        if not self._as_service:
-            self._cooldown = 1
-            last_ts = start_ts - (cooldown_ns * 2)
+        cooldown_start: t.Optional[datetime.datetime] = None
 
         while running:
-            self._on_iteration(start_ts)
+            self._on_iteration()
 
-            eligible_to_quit = self._can_shutdown()
+            # allow immediate shutdown if not set to run as a service
+            if not self._as_service:
+                running = False
+                continue
 
-            if self._cooldown and not eligible_to_quit:
-                # reset timer any time cooldown is interrupted
-                elapsed_cooldown = 0
+            # reset cooldown period if shutdown criteria are not met
+            if not self._can_shutdown():
+                cooldown_start = None
 
-            # allow service to shutdown if no cooldown period applies...
-            running = not eligible_to_quit
+            # start tracking cooldown elapsed once eligible to quit
+            if cooldown_start is None:
+                cooldown_start = datetime.datetime.now()
 
-            # ... but verify we don't have remaining cooldown time
-            if self._cooldown:
-                elapsed_cooldown += start_ts - last_ts
-                remaining = cooldown_ns - elapsed_cooldown
-                running = remaining > 0
-
-                rem_in_s = remaining / nanosecond_scale_factor
-
-                if not running:
-                    cd_in_s = cooldown_ns / nanosecond_scale_factor
-                    logger.info(f"cooldown {cd_in_s}s exceeded by {abs(rem_in_s):.2f}s")
-                    self._on_cooldown()
-                    continue
-
-                logger.debug(f"cooldown remaining {abs(rem_in_s):.2f}s")
-
-            last_ts = start_ts
-            start_ts = time.time_ns()
+            # change running state if cooldown period is exceeded
+            if cooldown_start is not None and abs(self._cooldown) > 0:
+                elapsed = datetime.datetime.now() - cooldown_start
+                running = elapsed.total_seconds() < self._cooldown
+                self._log_cooldown(elapsed.total_seconds())
 
             if self._loop_delay:
                 time.sleep(abs(self._loop_delay))

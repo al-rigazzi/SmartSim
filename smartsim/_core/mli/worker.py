@@ -237,7 +237,7 @@ class MachineLearningWorkerCore:
         # accurately placed, datum might need to include this.
 
         # Consider parallelizing all PUT feature_store operations
-        for k, v in zip(request.output_keys, transform_result.transformed):
+        for k, v in zip(request.output_keys, transform_result.outputs):
             feature_store[k] = v
             keys.append(k)
 
