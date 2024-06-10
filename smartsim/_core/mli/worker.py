@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 
 
 class InferenceRequest:
-    """Temporary model of an inference request"""
+    """Internal representation of an inference request from a client"""
 
     def __init__(
         self,
@@ -53,7 +53,7 @@ class InferenceRequest:
         batch_size: int = 0,
         device: t.Optional[str] = None,
     ):
-        """Initialize the InferenceRequest"""
+        """Initialize the object"""
         self.model_key = model_key
         self.raw_model = raw_model
         self.callback = callback
@@ -72,7 +72,7 @@ class InferenceRequest:
 
 
 class InferenceReply:
-    """Temporary model of a reply to an inference request"""
+    """Internal representation of the reply to a client request for inference"""
 
     def __init__(
         self,
@@ -80,7 +80,7 @@ class InferenceReply:
         output_keys: t.Optional[t.Collection[str]] = None,
         failed: bool = False,
     ) -> None:
-        """Initialize the InferenceReply"""
+        """Initialize the object"""
         self.outputs: t.Collection[t.Any] = outputs or []
         self.output_keys: t.Collection[t.Optional[str]] = output_keys or []
         self.failed = failed
@@ -90,7 +90,7 @@ class ModelLoadResult:
     """A wrapper around a loaded model"""
 
     def __init__(self, model: t.Any) -> None:
-        """Initialize the ModelLoadResult"""
+        """Initialize the object"""
         self.model = model
 
 
@@ -98,7 +98,7 @@ class InputTransformResult:
     """A wrapper around a transformed input"""
 
     def __init__(self, result: t.Any) -> None:
-        """Initialize the InputTransformResult"""
+        """Initialize the object"""
         self.transformed = result
 
 
@@ -106,7 +106,7 @@ class ExecuteResult:
     """A wrapper around inference results"""
 
     def __init__(self, result: t.Any) -> None:
-        """Initialize the ExecuteResult"""
+        """Initialize the object"""
         self.predictions = result
 
 
@@ -114,7 +114,7 @@ class InputFetchResult:
     """A wrapper around fetched inputs"""
 
     def __init__(self, result: t.List[bytes]) -> None:
-        """Initialize the InputFetchResult"""
+        """Initialize the object"""
         self.inputs = result
 
 
@@ -132,11 +132,11 @@ class OutputTransformResult:
         # todo: determine if each output must have an individual (shape, order, dtype)
 
 
-class BatchResult:
-    """A wrapper around batched inputs"""
+class CreateInputBatchResult:
+    """A wrapper around inputs batched into a single request"""
 
     def __init__(self, result: t.Any) -> None:
-        """Initialize the BatchResult"""
+        """Initialize the object"""
         self.batch = result
 
 
@@ -144,7 +144,7 @@ class FetchModelResult:
     """A wrapper around raw fetched models"""
 
     def __init__(self, result: bytes) -> None:
-        """Initialize the BatchResult"""
+        """Initialize the object"""
         self.model_bytes = result
 
 
@@ -210,7 +210,7 @@ class MachineLearningWorkerCore:
     @staticmethod
     def batch_requests(
         request: InferenceRequest, transform_result: InputTransformResult
-    ) -> BatchResult:
+    ) -> CreateInputBatchResult:
         """Create a batch of requests. Return the batch when batch_size datum have been
         collected or a configured batch duration has elapsed.
         :param request: The request that triggered the pipeline
@@ -218,7 +218,7 @@ class MachineLearningWorkerCore:
         :return: `None` if batch size has not been reached and timeout not exceeded."""
         if transform_result is not None or request.batch_size:
             raise NotImplementedError("Batching is not yet supported")
-        return BatchResult(None)
+        return CreateInputBatchResult(None)
 
     @staticmethod
     def place_output(
@@ -344,7 +344,6 @@ class SampleTorchWorker(MachineLearningWorkerBase):
         load_result: ModelLoadResult,
         transform_result: InputTransformResult,
     ) -> ExecuteResult:
-        """Execute an ML model on the given inputs"""
         if not load_result.model:
             raise sse.SmartSimError("Model must be loaded to execute")
 
@@ -412,7 +411,6 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
         load_result: ModelLoadResult,
         transform_result: InputTransformResult,
     ) -> ExecuteResult:
-        """Execute an ML model on the given inputs"""
         if not load_result.model:
             raise sse.SmartSimError("Model must be loaded to execute")
 
