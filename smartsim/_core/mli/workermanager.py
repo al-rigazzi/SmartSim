@@ -35,7 +35,7 @@ import typing as t
 import torch
 
 from smartsim._core.mli.infrastructure import (
-    CommChannel,
+    CommChannelBase,
     DragonCommChannel,
     FeatureStore,
     FileSystemCommChannel,
@@ -61,7 +61,7 @@ logger = get_logger(__name__)
 
 
 def deserialize_message(
-    data_blob: bytes, channel_type: t.Type[CommChannel]
+    data_blob: bytes, channel_type: t.Type[CommChannelBase]
 ) -> InferenceRequest:
     """Deserialize a message from a byte stream into an InferenceRequest
     :param data_blob: The byte stream to deserialize"""
@@ -181,7 +181,7 @@ class WorkerManager(ServiceHost):
         task_queue: "mp.Queue[bytes]",
         as_service: bool = False,
         cooldown: int = 0,
-        comm_channel_type: t.Type[CommChannel] = DragonCommChannel,
+        comm_channel_type: t.Type[CommChannelBase] = DragonCommChannel,
     ) -> None:
         """Initialize the WorkerManager
         :param feature_store: The persistence mechanism

@@ -33,7 +33,7 @@ import torch
 import smartsim.error as sse
 from smartsim.log import get_logger
 
-from .infrastructure import CommChannel, FeatureStore
+from .infrastructure import CommChannelBase, FeatureStore
 
 logger = get_logger(__name__)
 
@@ -44,7 +44,7 @@ class InferenceRequest:
     def __init__(
         self,
         model_key: t.Optional[str] = None,
-        callback: t.Optional[CommChannel] = None,
+        callback: t.Optional[CommChannelBase] = None,
         raw_inputs: t.Optional[t.List[bytes]] = None,
         input_keys: t.Optional[t.List[str]] = None,
         input_meta: t.Optional[t.List[t.Any]] = None,

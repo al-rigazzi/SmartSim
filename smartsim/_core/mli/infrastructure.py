@@ -189,7 +189,7 @@ class DragonFeatureStore(FeatureStore):
         return key in self._storage
 
 
-class CommChannel(ABC):
+class CommChannelBase(ABC):
     """Base class for abstracting a message passing mechanism"""
 
     def __init__(self, descriptor: t.Union[str, bytes]) -> None:
@@ -203,7 +203,7 @@ class CommChannel(ABC):
 
     @classmethod
     @abstractmethod
-    def find(cls, key: bytes) -> "CommChannel":
+    def find(cls, key: bytes) -> "CommChannelBase":
         """Find a channel given its serialized key
         :param key: The unique descriptor of a communications channel"""
         raise NotImplementedError()
@@ -216,7 +216,7 @@ class CommChannel(ABC):
         return self._descriptor
 
 
-class DragonCommChannel(CommChannel):
+class DragonCommChannel(CommChannelBase):
     """Passes messages by writing to a Dragon channel"""
 
     def __init__(self, channel: "dch.Channel") -> None:
@@ -230,7 +230,7 @@ class DragonCommChannel(CommChannel):
         self._channel.send_bytes(value)
 
     @classmethod
-    def find(cls, key: bytes) -> "CommChannel":
+    def find(cls, key: bytes) -> "CommChannelBase":
         """Find a channel given its serialized key
         :param key: The unique descriptor of a communications channel"""
         # todo: load channel correctly using dragon
@@ -240,7 +240,7 @@ class DragonCommChannel(CommChannel):
         return comm_channel
 
 
-class FileSystemCommChannel(CommChannel):
+class FileSystemCommChannel(CommChannelBase):
     """Passes messages by writing to a file"""
 
     def __init__(self, file_path: pathlib.Path) -> None:
@@ -259,7 +259,7 @@ class FileSystemCommChannel(CommChannel):
         self._file_path.write_bytes(value)
 
     @classmethod
-    def find(cls, key: bytes) -> "CommChannel":
+    def find(cls, key: bytes) -> "CommChannelBase":
         """Find a channel given its serialized key
         :param key: The unique descriptor of a communications channel"""
         channel_path = key.decode("utf-8")
