@@ -176,30 +176,64 @@ class WorkerManager(Service):
 
     def __init__(
         self,
-        feature_store: FeatureStore,
-        worker: MachineLearningWorkerBase,
         task_queue: "mp.Queue[bytes]",
+        worker: MachineLearningWorkerBase,
+        feature_store: t.Optional[FeatureStore] = None,
         as_service: bool = False,
         cooldown: int = 0,
         comm_channel_type: t.Type[CommChannelBase] = DragonCommChannel,
     ) -> None:
         """Initialize the WorkerManager
-        :param feature_store: The persistence mechanism
+        :param task_queue: The queue to monitor for new tasks
         :param workers: A worker to manage
+        :param feature_store: The persistence mechanism
         :param as_service: Specifies run-once or run-until-complete behavior of service
         :param cooldown: Number of seconds to wait before shutting down afer
-        shutdown criteria are met"""
+        shutdown criteria are met
+        :param comm_channel_type: The type of communication channel used for callbacks
+        """
         super().__init__(as_service, cooldown)
 
         """a collection of workers the manager is controlling"""
         self._task_queue: "mp.Queue[bytes]" = task_queue
         """the queue the manager monitors for new tasks"""
-        self._feature_store: FeatureStore = feature_store
+        self._feature_store: t.Optional[FeatureStore] = feature_store
         """a feature store to retrieve models from"""
         self._worker = worker
         """The ML Worker implementation"""
         self._comm_channel_type = comm_channel_type
         """The type of communication channel to construct for callbacks"""
+
+    def _validate_request(self, request: InferenceRequest) -> bool:
+        """Ensure the request can be processed.
+        :param request: The request to validate
+        :return: True if the request is valid, False otherwise"""
+        if not self._feature_store:
+            if request.model_key:
+                logger.error("Unable to load model by key without feature store")
+                return False
+
+            if request.input_keys:
+                logger.error("Unable to load inputs by key without feature store")
+                return False
+
+            if request.output_keys:
+                logger.error("Unable to persist outputs by key without feature store")
+                return False
+
+        if not request.model_key and not request.raw_model:
+            logger.error("Unable to continue without model bytes or feature store key")
+            return False
+
+        if not request.input_keys and not request.raw_inputs:
+            logger.error("Unable to continue without input bytes or feature store keys")
+            return False
+
+        if request.callback is None:
+            logger.error("No callback channel provided in request")
+            return False
+
+        return True
 
     def _on_iteration(self) -> None:
         """Executes calls to the machine learning worker implementation to complete
@@ -214,8 +248,7 @@ class WorkerManager(Service):
         request_bytes: bytes = self._task_queue.get()
 
         request = deserialize_message(request_bytes, self._comm_channel_type)
-        if not request.callback:
-            logger.error("No callback channel provided in request")
+        if not self._validate_request(request):
             return
 
         # # let the worker perform additional custom deserialization
@@ -223,7 +256,6 @@ class WorkerManager(Service):
 
         fetch_model_result = self._worker.fetch_model(request, self._feature_store)
         model_result = self._worker.load_model(request, fetch_model_result)
-
         fetch_input_result = self._worker.fetch_inputs(request, self._feature_store)
         transformed_input = self._worker.transform_input(request, fetch_input_result)
 
@@ -260,7 +292,8 @@ class WorkerManager(Service):
 
         # serialized = self._worker.serialize_reply(request, transformed_output)
         serialized_resp = MessageHandler.serialize_response(response)
-        request.callback.send(serialized_resp)
+        if request.callback:
+            request.callback.send(serialized_resp)
 
     def _can_shutdown(self) -> bool:
         """Return true when the criteria to shut down the service are met."""
@@ -403,9 +436,9 @@ if __name__ == "__main__":
     file_system_store = FileSystemFeatureStore()
 
     worker_manager = WorkerManager(
-        file_system_store,
-        integrated_worker,
         work_queue,
+        integrated_worker,
+        file_system_store,
         as_service=True,
         cooldown=10,
         comm_channel_type=FileSystemCommChannel,

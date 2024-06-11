@@ -9,9 +9,9 @@ import smartsim.error as sse
 from smartsim._core.mli.infrastructure import FileSystemFeatureStore, MemoryFeatureStore
 from smartsim._core.mli.worker import (
     InferenceRequest,
-    InputTransformResult,
+    TransformInputResult,
     MachineLearningWorkerCore,
-    OutputTransformResult,
+    TransformOutputResult,
 )
 from smartsim._core.utils import installed_redisai_backends
 
@@ -262,7 +262,7 @@ def test_fetch_input_memory(persist_torch_tensor: pathlib.Path) -> None:
 def test_batch_requests() -> None:
     """Verify batch requests handles an empty data set gracefully"""
     worker = MachineLearningWorkerCore
-    result = InputTransformResult([])
+    result = TransformInputResult([])
 
     request = InferenceRequest(batch_size=10)
 
@@ -287,7 +287,7 @@ def test_place_outputs() -> None:
         feature_store[k] = v
 
     request = InferenceRequest(output_keys=keys)
-    transform_result = OutputTransformResult(data, [1], "c", "float32")
+    transform_result = TransformOutputResult(data, [1], "c", "float32")
 
     worker.place_output(request, transform_result, feature_store)
 

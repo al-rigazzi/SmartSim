@@ -10,11 +10,11 @@ import smartsim.error as sse
 from smartsim._core.mli.infrastructure import MemoryFeatureStore
 from smartsim._core.mli.worker import (
     ExecuteResult,
+    FetchInputResult,
     FetchModelResult,
     InferenceRequest,
-    InputFetchResult,
-    InputTransformResult,
-    ModelLoadResult,
+    TransformInputResult,
+    LoadModelResult,
     SampleTorchWorker,
 )
 from smartsim._core.utils import installed_redisai_backends
@@ -84,7 +84,7 @@ def test_transform_input() -> None:
         torch.save(tensor, buffer)
         inputs.append(buffer.getvalue())
 
-    fetch_result = InputFetchResult(inputs)
+    fetch_result = FetchInputResult(inputs)
     worker = SampleTorchWorker
     result = worker.transform_input(request, fetch_result)
     transformed: t.Collection[torch.Tensor] = result.transformed
@@ -120,7 +120,7 @@ def test_execute_model(persist_torch_model: pathlib.Path) -> None:
     load_result = worker.load_model(request, fetch_result)
 
     value = torch.randn(2)
-    transform_result = InputTransformResult([value])
+    transform_result = TransformInputResult([value])
 
     execute_result = worker.execute(request, load_result, transform_result)
 
@@ -139,8 +139,8 @@ def test_execute_missing_model(persist_torch_model: pathlib.Path) -> None:
     worker = SampleTorchWorker
     request = InferenceRequest(input_keys=[model_name])
 
-    load_result = ModelLoadResult(None)
-    transform_result = InputTransformResult(
+    load_result = LoadModelResult(None)
+    transform_result = TransformInputResult(
         [torch.randn(2), torch.randn(2), torch.randn(2)]
     )
 

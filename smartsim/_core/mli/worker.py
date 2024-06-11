@@ -46,8 +46,8 @@ class InferenceRequest:
         model_key: t.Optional[str] = None,
         callback: t.Optional[CommChannelBase] = None,
         raw_inputs: t.Optional[t.List[bytes]] = None,
-        # todo: copying byte array is likely to create a copy of the data in capnproto
-        # and will be a performance issue later
+        # todo: copying byte array is likely to create a copy of the data in
+        # capnproto and will be a performance issue later
         input_keys: t.Optional[t.List[str]] = None,
         input_meta: t.Optional[t.List[t.Any]] = None,
         output_keys: t.Optional[t.List[str]] = None,
@@ -66,12 +66,6 @@ class InferenceRequest:
         self.batch_size = batch_size
         self.device = device
 
-    # @staticmethod
-    # def from_dict(_source: t.Dict[str, t.Any]) -> "InferenceRequest":
-    #     return InferenceRequest(
-    #         # **source
-    #     )
-
 
 class InferenceReply:
     """Internal representation of the reply to a client request for inference"""
@@ -88,7 +82,7 @@ class InferenceReply:
         self.failed = failed
 
 
-class ModelLoadResult:
+class LoadModelResult:
     """A wrapper around a loaded model"""
 
     def __init__(self, model: t.Any) -> None:
@@ -96,7 +90,7 @@ class ModelLoadResult:
         self.model = model
 
 
-class InputTransformResult:
+class TransformInputResult:
     """A wrapper around a transformed input"""
 
     def __init__(self, result: t.Any) -> None:
@@ -112,7 +106,7 @@ class ExecuteResult:
         self.predictions = result
 
 
-class InputFetchResult:
+class FetchInputResult:
     """A wrapper around fetched inputs"""
 
     def __init__(self, result: t.List[bytes]) -> None:
@@ -120,7 +114,7 @@ class InputFetchResult:
         self.inputs = result
 
 
-class OutputTransformResult:
+class TransformOutputResult:
     """A wrapper around inference results transformed for transmission"""
 
     def __init__(
@@ -155,12 +149,15 @@ class MachineLearningWorkerCore:
 
     @staticmethod
     def fetch_model(
-        request: InferenceRequest, feature_store: FeatureStore
+        request: InferenceRequest, feature_store: t.Optional[FeatureStore]
     ) -> FetchModelResult:
         """Given a resource key, retrieve the raw model from a feature store
         :param request: The request that triggered the pipeline
         :param feature_store: The feature store used for persistence
         :return: Raw bytes of the model"""
+        if not feature_store:
+            raise ValueError("Feature store is required for model retrieval")
+
         if request.raw_model:
             # Should we cache model in the feature store?
             # model_key = hash(request.raw_model)
@@ -184,13 +181,16 @@ class MachineLearningWorkerCore:
 
     @staticmethod
     def fetch_inputs(
-        request: InferenceRequest, feature_store: FeatureStore
-    ) -> InputFetchResult:
+        request: InferenceRequest, feature_store: t.Optional[FeatureStore]
+    ) -> FetchInputResult:
         """Given a collection of ResourceKeys, identify the physical location
         and input metadata
         :param request: The request that triggered the pipeline
         :param feature_store: The feature store used for persistence
         :return: the fetched input"""
+        if not feature_store:
+            raise ValueError("Feature store is required for input retrieval")
+
         if request.input_keys:
             data: t.List[bytes] = []
             for input_ in request.input_keys:
@@ -202,16 +202,16 @@ class MachineLearningWorkerCore:
                     raise sse.SmartSimError(
                         f"Model could not be retrieved with key {input_}"
                     ) from ex
-            return InputFetchResult(data)
+            return FetchInputResult(data)
 
         if request.raw_inputs:
-            return InputFetchResult(request.raw_inputs)
+            return FetchInputResult(request.raw_inputs)
 
         raise ValueError("No input source")
 
     @staticmethod
     def batch_requests(
-        request: InferenceRequest, transform_result: InputTransformResult
+        request: InferenceRequest, transform_result: TransformInputResult
     ) -> CreateInputBatchResult:
         """Create a batch of requests. Return the batch when batch_size datum have been
         collected or a configured batch duration has elapsed.
@@ -225,8 +225,8 @@ class MachineLearningWorkerCore:
     @staticmethod
     def place_output(
         request: InferenceRequest,
-        transform_result: OutputTransformResult,
-        feature_store: FeatureStore,
+        transform_result: TransformOutputResult,
+        feature_store: t.Optional[FeatureStore],
     ) -> t.Collection[t.Optional[str]]:
         """Given a collection of data, make it available as a shared resource in the
         feature store
@@ -234,6 +234,9 @@ class MachineLearningWorkerCore:
         :param execute_result: Results from inference
         :param feature_store: The feature store used for persistence
         :return: A collection of keys that were placed in the feature store"""
+        if not feature_store:
+            raise ValueError("Feature store is required for output persistence")
+
         keys: t.List[t.Optional[str]] = []
         # need to decide how to get back to original sub-batch inputs so they can be
         # accurately placed, datum might need to include this.
@@ -262,7 +265,7 @@ class MachineLearningWorkerBase(MachineLearningWorkerCore, ABC):
     @abstractmethod
     def load_model(
         request: InferenceRequest, fetch_result: FetchModelResult
-    ) -> ModelLoadResult:
+    ) -> LoadModelResult:
         """Given a loaded MachineLearningModel, ensure it is loaded into
         device memory
         :param request: The request that triggered the pipeline
@@ -271,8 +274,8 @@ class MachineLearningWorkerBase(MachineLearningWorkerCore, ABC):
     @staticmethod
     @abstractmethod
     def transform_input(
-        request: InferenceRequest, fetch_result: InputFetchResult
-    ) -> InputTransformResult:
+        request: InferenceRequest, fetch_result: FetchInputResult
+    ) -> TransformInputResult:
         """Given a collection of data, perform a transformation on the data
         :param request: The request that triggered the pipeline
         :param fetch_result: Raw output from fetching inputs out of a feature store
@@ -282,8 +285,8 @@ class MachineLearningWorkerBase(MachineLearningWorkerCore, ABC):
     @abstractmethod
     def execute(
         request: InferenceRequest,
-        load_result: ModelLoadResult,
-        transform_result: InputTransformResult,
+        load_result: LoadModelResult,
+        transform_result: TransformInputResult,
     ) -> ExecuteResult:
         """Execute an ML model on inputs transformed for use by the model
         :param request: The request that triggered the pipeline
@@ -296,7 +299,7 @@ class MachineLearningWorkerBase(MachineLearningWorkerCore, ABC):
     def transform_output(
         request: InferenceRequest,
         execute_result: ExecuteResult,
-    ) -> OutputTransformResult:
+    ) -> TransformOutputResult:
         """Given inference results, perform transformations required to
         transmit results to the requestor.
         :param request: The request that triggered the pipeline
@@ -323,28 +326,28 @@ class SampleTorchWorker(MachineLearningWorkerBase):
     @staticmethod
     def load_model(
         request: InferenceRequest, fetch_result: FetchModelResult
-    ) -> ModelLoadResult:
+    ) -> LoadModelResult:
         model_bytes = fetch_result.model_bytes or request.raw_model
         if not model_bytes:
             raise ValueError("Unable to load model without reference object")
 
         model: torch.nn.Module = torch.load(io.BytesIO(model_bytes))
-        result = ModelLoadResult(model)
+        result = LoadModelResult(model)
         return result
 
     @staticmethod
     def transform_input(
-        request: InferenceRequest, fetch_result: InputFetchResult
-    ) -> InputTransformResult:
+        request: InferenceRequest, fetch_result: FetchInputResult
+    ) -> TransformInputResult:
         result = [torch.load(io.BytesIO(item)) for item in fetch_result.inputs]
-        return InputTransformResult(result)
+        return TransformInputResult(result)
         # return data # note: this fails copy test!
 
     @staticmethod
     def execute(
         request: InferenceRequest,
-        load_result: ModelLoadResult,
-        transform_result: InputTransformResult,
+        load_result: LoadModelResult,
+        transform_result: TransformInputResult,
     ) -> ExecuteResult:
         if not load_result.model:
             raise sse.SmartSimError("Model must be loaded to execute")
@@ -359,10 +362,10 @@ class SampleTorchWorker(MachineLearningWorkerBase):
     def transform_output(
         request: InferenceRequest,
         execute_result: ExecuteResult,
-    ) -> OutputTransformResult:
+    ) -> TransformOutputResult:
         transformed = [item.clone() for item in execute_result.predictions]
         # todo: need the shape from latest schemas added here.
-        return OutputTransformResult(transformed, [1, 1, 1], "c", "float32")  # fixme
+        return TransformOutputResult(transformed, [1, 1, 1], "c", "float32")  # fixme
 
     # @staticmethod
     # def serialize_reply(
@@ -384,20 +387,20 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
     @staticmethod
     def load_model(
         request: InferenceRequest, fetch_result: FetchModelResult
-    ) -> ModelLoadResult:
+    ) -> LoadModelResult:
         model_bytes = fetch_result.model_bytes or request.raw_model
         if not model_bytes:
             raise ValueError("Unable to load model without reference object")
 
         model: torch.nn.Module = torch.load(io.BytesIO(model_bytes))
-        result = ModelLoadResult(model)
+        result = LoadModelResult(model)
         return result
 
     @staticmethod
     def transform_input(
         request: InferenceRequest,
-        fetch_result: InputFetchResult,
-    ) -> InputTransformResult:
+        fetch_result: FetchInputResult,
+    ) -> TransformInputResult:
         # extra metadata for assembly can be found in request.input_meta
         raw_inputs = request.raw_inputs or fetch_result.inputs
 
@@ -408,13 +411,13 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
         if raw_inputs:
             result = [torch.load(io.BytesIO(item)) for item in raw_inputs]
 
-        return InputTransformResult(result)
+        return TransformInputResult(result)
 
     @staticmethod
     def execute(
         request: InferenceRequest,
-        load_result: ModelLoadResult,
-        transform_result: InputTransformResult,
+        load_result: LoadModelResult,
+        transform_result: TransformInputResult,
     ) -> ExecuteResult:
         if not load_result.model:
             raise sse.SmartSimError("Model must be loaded to execute")
@@ -429,7 +432,7 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
     def transform_output(
         request: InferenceRequest,
         execute_result: ExecuteResult,
-    ) -> OutputTransformResult:
+    ) -> TransformOutputResult:
         # transformed = [item.clone() for item in execute_result.predictions]
         # return OutputTransformResult(transformed)
 
@@ -441,7 +444,7 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
         # send the original tensors...
         execute_result.predictions = [t.detach() for t in execute_result.predictions]
         # todo: solve sending all tensor metadata that coincisdes with each prediction
-        return OutputTransformResult(execute_result.predictions, [1], "c", "float32")
+        return TransformOutputResult(execute_result.predictions, [1], "c", "float32")
         # return OutputTransformResult(transformed)
 
     # @staticmethod
