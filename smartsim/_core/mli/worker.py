@@ -46,6 +46,8 @@ class InferenceRequest:
         model_key: t.Optional[str] = None,
         callback: t.Optional[CommChannelBase] = None,
         raw_inputs: t.Optional[t.List[bytes]] = None,
+        # todo: copying byte array is likely to create a copy of the data in capnproto
+        # and will be a performance issue later
         input_keys: t.Optional[t.List[str]] = None,
         input_meta: t.Optional[t.List[t.Any]] = None,
         output_keys: t.Optional[t.List[str]] = None,
@@ -400,6 +402,9 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
         raw_inputs = request.raw_inputs or fetch_result.inputs
 
         result: t.List[torch.Tensor] = []
+        # should this happen here?
+        # consider - fortran to c data layout
+        # is there an intermediate representation before really doing torch.load?
         if raw_inputs:
             result = [torch.load(io.BytesIO(item)) for item in raw_inputs]
 
@@ -435,6 +440,7 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
 
         # send the original tensors...
         execute_result.predictions = [t.detach() for t in execute_result.predictions]
+        # todo: solve sending all tensor metadata that coincisdes with each prediction
         return OutputTransformResult(execute_result.predictions, [1], "c", "float32")
         # return OutputTransformResult(transformed)
 

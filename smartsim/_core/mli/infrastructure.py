@@ -219,10 +219,11 @@ class CommChannelBase(ABC):
 class DragonCommChannel(CommChannelBase):
     """Passes messages by writing to a Dragon channel"""
 
-    def __init__(self, channel: "dch.Channel") -> None:
+    def __init__(self, key: bytes) -> None:
         """Initialize the DragonCommChannel instance"""
-        super().__init__("n/a")
-        self._channel = channel
+        super().__init__(key)
+        # todo: do we need memory pool information to construct the channel correctly?
+        self._channel: "dch.Channel" = du.get_channel(key)
 
     def send(self, value: bytes) -> None:
         """Send a message throuh the underlying communication channel
@@ -233,11 +234,7 @@ class DragonCommChannel(CommChannelBase):
     def find(cls, key: bytes) -> "CommChannelBase":
         """Find a channel given its serialized key
         :param key: The unique descriptor of a communications channel"""
-        # todo: load channel correctly using dragon
-        # ch = dch.Channel(key)
-        comm_channel = DragonCommChannel(key)
-        comm_channel._descriptor = key
-        return comm_channel
+        return DragonCommChannel(key)
 
 
 class FileSystemCommChannel(CommChannelBase):

@@ -34,7 +34,7 @@ from smartsim.log import get_logger
 logger = get_logger(__name__)
 
 
-class ServiceHost(ABC):
+class Service(ABC):
     """Base contract for standalone entrypoint scripts. Defines API for entrypoint
     behaviors (event loop, automatic shutdown, cooldown) as well as simple
     hooks for status changes"""
@@ -49,10 +49,10 @@ class ServiceHost(ABC):
         shutdown, in seconds. A non-zero, positive integer."""
         self._as_service = as_service
         """If the service should run until shutdown function returns True"""
-        self._cooldown = cooldown
+        self._cooldown = abs(cooldown)
         """Duration of a cooldown period between requests to the service
         before shutdown"""
-        self._loop_delay = loop_delay
+        self._loop_delay = abs(loop_delay)
         """Forced delay between iterations of the event loop"""
 
     @abstractmethod
@@ -114,12 +114,12 @@ class ServiceHost(ABC):
                 cooldown_start = datetime.datetime.now()
 
             # change running state if cooldown period is exceeded
-            if cooldown_start is not None and abs(self._cooldown) > 0:
+            if self._cooldown > 0:
                 elapsed = datetime.datetime.now() - cooldown_start
                 running = elapsed.total_seconds() < self._cooldown
                 self._log_cooldown(elapsed.total_seconds())
 
             if self._loop_delay:
-                time.sleep(abs(self._loop_delay))
+                time.sleep(self._loop_delay)
 
         self._on_shutdown()

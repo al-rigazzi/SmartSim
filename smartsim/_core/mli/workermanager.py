@@ -43,7 +43,7 @@ from smartsim._core.mli.infrastructure import (
 )
 from smartsim._core.mli.message_handler import MessageHandler
 from smartsim._core.mli.mli_schemas.response.response_capnp import Response
-from smartsim._core.mli.util import ServiceHost
+from smartsim._core.mli.util import Service
 from smartsim._core.mli.worker import (
     InferenceReply,
     InferenceRequest,
@@ -170,7 +170,7 @@ def build_reply(reply: InferenceReply) -> Response:
     )
 
 
-class WorkerManager(ServiceHost):
+class WorkerManager(Service):
     """An implementation of a service managing distribution of tasks to
     machine learning workers"""
 
@@ -185,15 +185,12 @@ class WorkerManager(ServiceHost):
     ) -> None:
         """Initialize the WorkerManager
         :param feature_store: The persistence mechanism
-        :param worker: A worker to manage
+        :param workers: A worker to manage
         :param as_service: Specifies run-once or run-until-complete behavior of service
         :param cooldown: Number of seconds to wait before shutting down afer
         shutdown criteria are met"""
         super().__init__(as_service, cooldown)
 
-        self._workers: t.List["t.Tuple[MachineLearningWorkerBase, mp.Queue[bytes]]"] = (
-            []
-        )
         """a collection of workers the manager is controlling"""
         self._task_queue: "mp.Queue[bytes]" = task_queue
         """the queue the manager monitors for new tasks"""
@@ -215,6 +212,7 @@ class WorkerManager(ServiceHost):
 
         # perform default deserialization of the message envelope
         request_bytes: bytes = self._task_queue.get()
+
         request = deserialize_message(request_bytes, self._comm_channel_type)
         if not request.callback:
             logger.error("No callback channel provided in request")
@@ -266,13 +264,14 @@ class WorkerManager(ServiceHost):
 
     def _can_shutdown(self) -> bool:
         """Return true when the criteria to shut down the service are met."""
-        return bool(self._workers)
-
-    def add_worker(
-        self, worker: MachineLearningWorkerBase, upstream_queue: "mp.Queue[bytes]"
-    ) -> None:
-        """Add a worker instance to the collection managed by the WorkerManager"""
-        self._workers.append((worker, upstream_queue))
+        # todo: determine shutdown criteria
+        # will we receive a completion message?
+        # will we let MLI mgr just kill this?
+        # time_diff = self._last_event - datetime.datetime.now()
+        # if time_diff.total_seconds() > self._cooldown:
+        #     return True
+        # return False
+        return self._worker is None
 
 
 def mock_work(worker_manager_queue: "mp.Queue[bytes]") -> None:
