@@ -343,7 +343,8 @@ def persist_model_file(model_path: pathlib.Path) -> pathlib.Path:
     # model_path = test_path / "basic.pt"
 
     model = torch.nn.Linear(2, 1)
-    torch.save(model, model_path)
+
+    torch.jit.save(model, model_path)  # type: ignore[no-untyped-call]
 
     return model_path
 
@@ -418,7 +419,7 @@ if __name__ == "__main__":
 
     def prepare_environment() -> pathlib.Path:
         """Cleanup prior outputs to run demo repeatedly"""
-        path = pathlib.Path("/lus/bnchlu1/mcbridch/code/ss/_tmp")
+        path = pathlib.Path("/lus/bnchlu1/arigazzi/code/ss/_tmp")
         if path.exists():
             shutil.rmtree(path)  # clean up prior results
 

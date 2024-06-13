@@ -392,7 +392,7 @@ class IntegratedTorchWorker(MachineLearningWorkerBase):
         if not model_bytes:
             raise ValueError("Unable to load model without reference object")
 
-        model: torch.nn.Module = torch.load(io.BytesIO(model_bytes))
+        model: torch.nn.Module = torch.jit.load(io.BytesIO(model_bytes))  # type: ignore[no-untyped-call]
         result = LoadModelResult(model)
         return result
 
