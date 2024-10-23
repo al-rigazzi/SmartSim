@@ -29,16 +29,16 @@ build:
       - ln -s smartredis/examples ./examples
       - cd smartdashboard; python -m pip install .
       - smart build --device cpu --dragon -v
-      - export $(cat /home/docs/checkouts/readthedocs.org/user_builds/smartsim/envs/755/lib/python3.10/site-packages/smartsim/_core/.dragon/.env | grep DRAGON_INCLUDE_DIR)
-      - export LD_LIBRARY_PATH=$DRAGON_INCLUDE_DIR:$LD_LIBRARY_PATH
-      - echo $DRAGON_INCLUDE_DIR
+      - SP=$(python -c 'import site; print(site.getsitepackages()[0])')/smartsim/_core/config/dragon/.env
+      - echo $SP
+      - LLP=$(cat $SP | grep LD_LIBRARY_PATH | awk '{split($0, array, "="); print array[2]}')
+      - export LD_LIBRARY_PATH=$LLP:$LD_LIBRARY_PATH
       - echo $LD_LIBRARY_PATH
       - ls
       - pwd
-      - find /home/docs/checkouts/readthedocs.org/user_builds/smartsim/envs/755/lib/python3.10/site-packages/smartsim/_core/.dragon -name ".env"
       - which smart
       - smart site
-      
+
     pre_build:
       - pip install typing_extensions==4.8.0
       - pip install pydantic==1.10.13
