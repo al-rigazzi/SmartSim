@@ -30,9 +30,9 @@ build:
       - cd smartdashboard; python -m pip install .
       - smart build --device cpu --dragon -v
       - DLP=$(python -c "import site; print(site.getsitepackages()[0])")/smartsim/_core/config/dragon/lib
-      - echo $DLP
-      - export LD_LIBRARY_PATH=$DLP:$LD_LIBRARY_PATH
-      - echo $LD_LIBRARY_PATH
+      - echo ${DLP}
+      - LD_LIBRARY_PATH=${DLP}:${LD_LIBRARY_PATH}
+      - echo ${LD_LIBRARY_PATH}
       - ls
       - pwd
       - which smart
