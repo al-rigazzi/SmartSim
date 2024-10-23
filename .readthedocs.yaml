@@ -28,7 +28,7 @@ build:
       - cd smartredis/doc; doxygen Doxyfile_c; doxygen Doxyfile_cpp; doxygen Doxyfile_fortran
       - ln -s smartredis/examples ./examples
       - cd smartdashboard; python -m pip install .
-      - smart build --device cpu --dragon -v --no_tf --no_pt
+      - smart build --device cpu --dragon -v
       - SP=$(python -c 'import site; print(site.getsitepackages()[0])')/smartsim/_core/config/dragon/.env
       - echo $SP
       - LLP=$(cat $SP | grep LD_LIBRARY_PATH | awk '{split($0, array, "="); print array[2]}')
