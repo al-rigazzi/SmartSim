@@ -23,6 +23,8 @@ build:
       - git clone --depth 1 https://github.com/CrayLabs/SmartRedis.git smartredis
       - git clone --depth 1 https://github.com/CrayLabs/SmartDashboard.git smartdashboard
     post_create_environment:
+      - export MY_VARIABLE=myvar
+      - MY_NEW_VARIABLE=mynewvar
       - env
       - python -m pip install .[dev,docs]
       - cd smartredis; python -m pip install .
@@ -32,6 +34,7 @@ build:
       - smart build --device cpu --dragon -v
       - DLP=$(smart site)/_core/config/dragon/lib echo $DLP
       - echo ${DLP}
+      - ls $(smart site)/_core/config/dragon/lib
       - LD_LIBRARY_PATH=${DLP}:${LD_LIBRARY_PATH}
       - echo ${LD_LIBRARY_PATH}
       - env
