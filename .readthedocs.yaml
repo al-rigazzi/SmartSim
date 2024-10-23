@@ -29,7 +29,7 @@ build:
       - ln -s smartredis/examples ./examples
       - cd smartdashboard; python -m pip install .
       - smart build --device cpu --dragon -v
-      - DLP=$(python -c "import site; print(site.getsitepackages()[0])")/smartsim/_core/config/dragon/lib echo $DLP
+      - DLP=$(smart site)/_core/config/dragon/lib echo $DLP
       - echo ${DLP}
       - LD_LIBRARY_PATH=${DLP}:${LD_LIBRARY_PATH}
       - echo ${LD_LIBRARY_PATH}
