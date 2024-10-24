@@ -23,8 +23,6 @@ build:
       - git clone --depth 1 https://github.com/CrayLabs/SmartRedis.git smartredis
       - git clone --depth 1 https://github.com/CrayLabs/SmartDashboard.git smartdashboard
     post_create_environment:
-      - export MY_VARIABLE=myvar
-      - MY_NEW_VARIABLE=mynewvar
       - env
       - python -m pip install .[dev,docs]
       - cd smartredis; python -m pip install .
@@ -32,13 +30,7 @@ build:
       - ln -s smartredis/examples ./examples
       - cd smartdashboard; python -m pip install .
       - smart build --device cpu --dragon -v
-      - ls $(smart site)/_core/.dragon
-      - ls $(smart site)/_core/.dragon/lib
-      - env
-      - ls
-      - pwd
-      - which smart
-      - smart site
+      - ls -lh $(smart site)/_core/.dragon
 
     pre_build:
       - pip install typing_extensions==4.8.0
