@@ -14,6 +14,7 @@ Jump to:
 Description
 
 - Add `TensorFlowWorker` and `ONNXWorker`
+- Fix dragon build logging bug
 - Merge core refactor into MLI feature branch
 - Implement asynchronous notifications for shared data
 - Quick bug fix in _validate
