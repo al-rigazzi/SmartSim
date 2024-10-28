@@ -176,14 +176,14 @@ def run(
     while not dragon_backend.should_shutdown:
         try:
             req = server.recv()
-            logger.debug(f"Received {type(req).__name__} {req}")
+            # logger.debug(f"Received {type(req).__name__} {req}")
         except zmq.Again:
             backend_updater = updater_fallback(dragon_backend, backend_updater)
             continue
 
         resp = dragon_backend.process_request(req)
 
-        logger.debug(f"Sending {type(resp).__name__} {resp}")
+        # logger.debug(f"Sending {type(resp).__name__} {resp}")
         try:
             server.send(resp)
         except zmq.Again:

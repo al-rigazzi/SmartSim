@@ -107,10 +107,10 @@ if __name__ == "__main__":
         help="Device on which the inference takes place",
     )
     parser.add_argument(
-        "--worker_class",
+        "--toolkit",
         type=str,
         required=True,
-        help="Serialized class of worker to run",
+        help="Name of toolkit used to run inference",
     )
     parser.add_argument(
         "--num_workers", type=int, default=1, help="Number of workers to run"
@@ -147,9 +147,13 @@ if __name__ == "__main__":
     os.environ[BackboneFeatureStore.MLI_WORKER_QUEUE] = to_worker_fli_comm_ch.descriptor
     os.environ[BackboneFeatureStore.MLI_BACKBONE] = backbone.descriptor
 
-    arg_worker_type = cloudpickle.loads(
-        base64.b64decode(args.worker_class.encode("ascii"))
-    )
+
+    if args.toolkit == "torch":
+        from smartsim._core.mli.infrastructure.worker.torch_worker import TorchWorker as WorkerClass
+    elif args.toolkit == "tensorflow":
+        from smartsim._core.mli.infrastructure.worker.tensorflow_worker import TensorFlowWorker as WorkerClass
+    elif args.toolkit == "onnx":
+        from smartsim._core.mli.infrastructure.worker.onnx_worker import ONNXWorker as WorkerClass
 
     config_loader = EnvironmentConfigLoader(
         featurestore_factory=DragonFeatureStore.from_descriptor,
@@ -161,7 +165,7 @@ if __name__ == "__main__":
         batch_timeout=args.batch_timeout,
         batch_size=args.batch_size,
         config_loader=config_loader,
-        worker_type=arg_worker_type,
+        worker_type=WorkerClass,
         mem_pool_size=128 * 1024**3,
     )
 
@@ -171,7 +175,7 @@ if __name__ == "__main__":
 
         worker_manager = WorkerManager(
             config_loader=config_loader,
-            worker_type=arg_worker_type,
+            worker_type=WorkerClass,
             as_service=True,
             cooldown=10,
             device=worker_device,

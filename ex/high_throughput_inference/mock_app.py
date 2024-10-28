@@ -94,7 +94,10 @@ if __name__ == "__main__":
     parser.add_argument("--log_max_batchsize", default=8, type=int)
     args = parser.parse_args()
 
-    resnet = ResNetWrapper("resnet50", f"resnet50.{args.device}.pt")
+    resnet = ResNetWrapper(
+        "resnet50",
+        f"../../../../../../../../resnet50.{args.device}.pt",
+    )
 
     comm_world = MPI.COMM_WORLD
     rank = comm_world.Get_rank()

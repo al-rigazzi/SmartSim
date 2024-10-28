@@ -100,7 +100,7 @@ class LaunchSettings(BaseSettings):
             srun_settings.launch_args.set_nodes(5)
             srun_settings.launch_args.set_cpus_per_task(2)
 
-        To set customized launch arguments, use the  `set()`function provided by
+        To set customized launch arguments, use the  `set()` function provided by
         the LaunchSettings child class. For example:
 
         .. highlight:: python
