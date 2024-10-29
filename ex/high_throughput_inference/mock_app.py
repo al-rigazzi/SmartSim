@@ -96,7 +96,7 @@ if __name__ == "__main__":
 
     resnet = ResNetWrapper(
         "resnet50",
-        f"../../../../../../../../resnet50.{args.device}.pt",
+        f"resnet50.{args.device}.pt",
     )
 
     comm_world = MPI.COMM_WORLD

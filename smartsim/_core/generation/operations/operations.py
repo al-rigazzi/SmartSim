@@ -137,7 +137,7 @@ class SymlinkOperation(GenerationProtocol):
         normalized_path = os.path.normpath(self.src)
         parent_dir = os.path.dirname(normalized_path)
         final_dest = _create_dest_path(context.job_run_path, self.dest)
-        new_dest = os.path.join(final_dest, parent_dir)
+
         return Command(
             [
                 sys.executable,
@@ -145,7 +145,7 @@ class SymlinkOperation(GenerationProtocol):
                 entry_point_path,
                 symlink_cmd,
                 str(self.src),
-                new_dest,
+                final_dest,
             ]
         )
 

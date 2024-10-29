@@ -12,6 +12,7 @@ from smartsim.entity import Application
 from smartsim.settings import LaunchSettings
 from smartsim.status import TERMINAL_STATUSES
 from smartsim.launchable.job import Job
+from smartsim.entity.torch_inference_service import TorchInferenceService
 
 parser = argparse.ArgumentParser("Mock application")
 parser.add_argument("--log_max_batchsize", default=8, type=int)
@@ -55,38 +56,25 @@ except Exception:
 os.makedirs(exp_path, exist_ok=True)
 exp = Experiment("MLI_benchmark", exp_path=exp_path)
 
-worker_manager_ls: LaunchSettings = LaunchSettings("dragon")
-
+inference_service_ls: LaunchSettings = LaunchSettings("dragon")
 
 aff = []
 
-worker_manager_ls.launch_args.set_cpu_affinity(aff)
-worker_manager_ls.launch_args.set_gpu_affinity([0, 1, 2, 3])
+inference_service_ls.launch_args.set_cpu_affinity(aff)
+inference_service_ls.launch_args.set_gpu_affinity([0, 1, 2, 3])
 if args.wm_node:
-    worker_manager_ls.launch_args.set_hostlist([args.wm_node])
+    inference_service_ls.launch_args.set_hostlist([args.wm_node])
 
-wm_exe_args = [
-    worker_manager_script_name,
-    "--device",
-    args.device,
-    "--toolkit",
-    args.toolkit,
-    "--batch_size",
-    str(BATCH_SIZE),
-    "--batch_timeout",
-    str(BATCH_TIMEOUT),
-    "--num_workers",
-    str(NUM_WORKERS),
-]
-
-
-worker_manager = Application(
-    name="worker_manager",
-    exe=sys.executable,
-    exe_args=wm_exe_args,
+inference_service = TorchInferenceService(
+    "torch_server",
+    launch_settings=inference_service_ls,
+    device=args.device,
+    num_workers=NUM_WORKERS,
+    batch_size=BATCH_SIZE,
+    batch_timeout=BATCH_TIMEOUT,
 )
-worker_manager.files.add_copy(Path(worker_manager_script_name))
-wm_job = Job(worker_manager, worker_manager_ls)
+
+inference_job = inference_service.build_jobs()
 
 app_ls: LaunchSettings = LaunchSettings("dragon")
 app_ls.launch_args.set_tasks_per_node(NUM_RANKS_PER_NODE)
@@ -107,24 +95,25 @@ app = Application(
 
 app.files.add_copy(Path(app_script_name))
 
-# if args.toolkit == "torch":
-#     model_name = os.path.join(filedir, f"resnet50.{args.device}.pt")
-#     app.files.add_symlink(Path(model_name))
+if args.toolkit == "torch":
+    model_name = os.path.join(filedir, f"resnet50.{args.device}.pt")
+    app.files.add_symlink(Path(model_name), Path(f"resnet50.{args.device}.pt"))
 
 app_job = Job(app, app_ls)
 
-wm_job_id = exp.start(wm_job)
+inference_id = exp.start(inference_job)
 
 app_job_id = exp.start(app_job)
 
 while True:
     if exp.get_status(*app_job_id)[0] in TERMINAL_STATUSES:
         time.sleep(10)
-        exp.stop(wm_job_id)
+        exp.stop(inference_id)
         break
-    if exp.get_status(*wm_job_id)[0] in TERMINAL_STATUSES:
+    if exp.get_status(*inference_id)[0] in TERMINAL_STATUSES:
         time.sleep(10)
         exp.stop(app_job_id)
         break
+    time.sleep(10)
 
 print("Exiting.")
