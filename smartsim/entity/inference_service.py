@@ -75,7 +75,7 @@ class InferenceService(InfrastructureService, abc.ABC):
         """Initialize an ``InferenceService``
 
         Each InferenceService is currently limited to run on one node only, using
-        ``DragonLaunchArguments`` with more than one node specified will raise an error.
+        ``LaunchSettings`` with more than one node specified will raise an error.
         To take advantage of vectorization, multiple requests can be batched together,
         i.e. the service can wait until a ``batch_size`` requests are received before
         executing them all as one single inference call. Batches which are not complete
@@ -114,9 +114,9 @@ class InferenceService(InfrastructureService, abc.ABC):
 
     @property
     def launch_settings(self) -> LaunchSettings:
-        """Return the launch arguments.
+        """Return the launch settings.
 
-        :return: the launch arguments
+        :return: the launch settings
         """
         return self._launch_settings
 
@@ -171,7 +171,9 @@ class InferenceService(InfrastructureService, abc.ABC):
         return exe_args
 
     def build_jobs(self) -> list[Job]:
-        """Build and return jobs needed to run the services"""
+        """Build and return jobs needed to run the services
+
+        :return: A list of jobs to launch run this service"""
         exe_args = self._build_exe_args()
 
         app = Application(
@@ -190,3 +192,168 @@ class InferenceService(InfrastructureService, abc.ABC):
         :return: a sequence of strings representing the executable and its arguments
         """
         return [sys.executable, *self._build_exe_args()]
+
+
+class TorchInferenceService(InferenceService):
+    """The TorchInferenceService adds Torch-based inference capabilities
+    to a workflow.
+
+    Infastructure services are only compatible with the DragonLauncher.
+
+    """
+
+    def __init__(
+        self,
+        identifier: str | None,
+        launch_settings: LaunchSettings,
+        device: t.Literal["gpu", "cpu"] = "cpu",
+        num_workers: int = 1,
+        batch_size: int = 1,
+        batch_timeout: float = 0.0,
+    ) -> None:
+        """Initialize a ``TorchInfrastructureService``
+
+        Each ``TorchInferenceService`` is currently limited to run on one node only,
+        using ``LaunchSettings`` with more than one node specified will raise
+        an error.
+        To take advantage of vectorization, multiple requests can be batched together,
+        i.e. the service can wait until a ``batch_size`` requests are received before
+        executing them all as one single inference call. Batches which are not complete
+        can also be executed after ``batch_timeout`` seconds elapse.
+
+
+        param identifier: identifier which can be used by client apps, must be unique
+        across all infrastructure services; if one is not provided, a unique identifier
+        is created.
+        :param launch_settings: launch settings defining how the service will run.
+        :param device: Device to use for inference, can be "cpu" or "gpu".
+        :param num_workers: Number of workers that should serve requests. If the
+        ``device`` is "gpu", ``num_workers`` should be less or equal to the number
+        of available GPUs.
+        :param batch_size: how many *requests* should be batched together before
+        running inference.
+        :param batch_timeout: how long (in seconds) the service should wait before
+        running inference on an incomplete batch.
+        :raises ValueError: if the launcher of launch_settings is not Dragon.
+        :raises SSUnsupportedError: if ``launch_arguments`` specifies a number of nodes
+        greater than one.
+        """
+        super().__init__(
+            identifier=identifier,
+            launch_settings=launch_settings,
+            device=device,
+            num_workers=num_workers,
+            batch_size=batch_size,
+            batch_timeout=batch_timeout,
+            toolkit="torch",
+        )
+
+
+class TensorFlowInferenceService(InferenceService):
+    """The TorchInferenceService adds Torch-based inference capabilities
+    to a workflow.
+
+    Infastructure services are only compatible with the DragonLauncher.
+
+    """
+
+    def __init__(
+        self,
+        identifier: str | None,
+        launch_settings: LaunchSettings,
+        device: t.Literal["gpu", "cpu"] = "cpu",
+        num_workers: int = 1,
+        batch_size: int = 1,
+        batch_timeout: float = 0.0,
+    ) -> None:
+        """Initialize a ``TensorFlowInfrastructureService``
+
+        Each ``TensorFlowInferenceService`` is currently limited to run on one node
+        only, using ``LaunchSettings`` with more than one node specified will
+        raise an error.
+        To take advantage of vectorization, multiple requests can be batched together,
+        i.e. the service can wait until a ``batch_size`` requests are received before
+        executing them all as one single inference call. Batches which are not complete
+        can also be executed after ``batch_timeout`` seconds elapse.
+
+
+        param identifier: identifier which can be used by client apps, must be unique
+        across all infrastructure services; if one is not provided, a unique identifier
+        is created.
+        :param launch_settings: launch settings defining how the service will run.
+        :param device: Device to use for inference, can be "cpu" or "gpu".
+        :param num_workers: Number of workers that should serve requests. If the
+        ``device`` is "gpu", ``num_workers`` should be less or equal to the number
+        of available GPUs.
+        :param batch_size: how many *requests* should be batched together before
+        running inference.
+        :param batch_timeout: how long (in seconds) the service should wait before
+        running inference on an incomplete batch.
+        :raises ValueError: if the launcher of launch_settings is not Dragon.
+        :raises SSUnsupportedError: if ``launch_arguments`` specifies a number of nodes
+        greater than one.
+        """
+        super().__init__(
+            identifier=identifier,
+            launch_settings=launch_settings,
+            device=device,
+            num_workers=num_workers,
+            batch_size=batch_size,
+            batch_timeout=batch_timeout,
+            toolkit="tensorflow",
+        )
+
+
+class ONNXInferenceService(InferenceService):
+    """The ONNXInferenceService adds ONNX-based inference capabilities
+    to a workflow.
+
+    Infastructure services are only compatible with the DragonLauncher.
+
+    """
+
+    def __init__(
+        self,
+        identifier: str | None,
+        launch_settings: LaunchSettings,
+        device: t.Literal["gpu", "cpu"] = "cpu",
+        num_workers: int = 1,
+        batch_size: int = 1,
+        batch_timeout: float = 0.0,
+    ) -> None:
+        """Initialize a ``ONNXInferenceService``
+
+        Each ``InferenceService`` is currently limited to run on one node only,
+        using ``LaunchSettings`` with more than one node specified will raise
+        an error.
+        To take advantage of vectorization, multiple requests can be batched together,
+        i.e. the service can wait until a ``batch_size`` requests are received before
+        executing them all as one single inference call. Batches which are not complete
+        can also be executed after ``batch_timeout`` seconds elapse.
+
+
+        param identifier: identifier which can be used by client apps, must be unique
+        across all infrastructure services; if one is not provided, a unique identifier
+        is created.
+        :param launch_settings: launch settings defining how the service will run.
+        :param device: Device to use for inference, can be "cpu" or "gpu".
+        :param num_workers: Number of workers that should serve requests. If the
+        ``device`` is "gpu", ``num_workers`` should be less or equal to the number
+        of available GPUs.
+        :param batch_size: how many *requests* should be batched together before
+        running inference.
+        :param batch_timeout: how long (in seconds) the service should wait before
+        running inference on an incomplete batch.
+        :raises ValueError: if the launcher of launch_settings is not Dragon.
+        :raises SSUnsupportedError: if ``launch_arguments`` specifies a number of nodes
+        greater than one.
+        """
+        super().__init__(
+            identifier=identifier,
+            launch_settings=launch_settings,
+            device=device,
+            num_workers=num_workers,
+            batch_size=batch_size,
+            batch_timeout=batch_timeout,
+            toolkit="onnx",
+        )

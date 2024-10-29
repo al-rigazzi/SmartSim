@@ -12,7 +12,7 @@ from smartsim.entity import Application
 from smartsim.settings import LaunchSettings
 from smartsim.status import TERMINAL_STATUSES
 from smartsim.launchable.job import Job
-from smartsim.entity.torch_inference_service import TorchInferenceService
+from smartsim.entity.inference_service import TorchInferenceService
 
 parser = argparse.ArgumentParser("Mock application")
 parser.add_argument("--log_max_batchsize", default=8, type=int)

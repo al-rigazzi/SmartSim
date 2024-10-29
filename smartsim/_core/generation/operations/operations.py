@@ -135,7 +135,6 @@ class SymlinkOperation(GenerationProtocol):
         :return: Symlink Command
         """
         normalized_path = os.path.normpath(self.src)
-        parent_dir = os.path.dirname(normalized_path)
         final_dest = _create_dest_path(context.job_run_path, self.dest)
 
         return Command(
@@ -144,7 +143,7 @@ class SymlinkOperation(GenerationProtocol):
                 "-m",
                 entry_point_path,
                 symlink_cmd,
-                str(self.src),
+                str(normalized_path),
                 final_dest,
             ]
         )

@@ -83,17 +83,17 @@ class InfrastructureService(SmartSimEntity, abc.ABC):
 
     @property
     def launch_settings(self) -> LaunchSettings:
-        """Return the launch arguments.
+        """Return the launch settings.
 
-        :return: the launch arguments
+        :return: the launch settings
         """
         return self._launch_settings
 
     @launch_settings.setter
     def launch_settings(self, value: LaunchSettings) -> None:
-        """Set the launch arguments.
+        """Set the launch settings.
 
-        :param value: the launch arguments
+        :param value: the launch settings
         :raises ValueError: if the launcher of launch_settings is not Dragon
 
         """
