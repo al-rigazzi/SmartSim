@@ -129,6 +129,12 @@ if __name__ == "__main__":
         help="How much time (in seconds) should be waited "
         "before processing an incomplete aggregated request",
     )
+    parser.add_argument(
+        "--identifier",
+        type=str,
+        required=True,
+        help="Unique identifier for this service",
+    )
     args = parser.parse_args()
 
     connect_to_infrastructure()
@@ -148,6 +154,8 @@ if __name__ == "__main__":
 
     os.environ[BackboneFeatureStore.MLI_WORKER_QUEUE] = to_worker_fli_comm_ch.descriptor
     os.environ[BackboneFeatureStore.MLI_BACKBONE] = backbone.descriptor
+
+    backbone[args.identifier] = to_worker_fli_comm_ch.descriptor
 
     worker_type: type
     if args.toolkit == "torch":
@@ -233,3 +241,5 @@ if __name__ == "__main__":
 
     for proc in all_procs:
         logger.info(f"{proc} is alive: {proc.is_alive}")
+
+    del backbone[args.identifier]

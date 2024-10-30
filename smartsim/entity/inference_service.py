@@ -167,6 +167,8 @@ class InferenceService(InfrastructureService, abc.ABC):
             str(self._batch_size),
             "--batch_timeout",
             str(self._batch_timeout),
+            "--identifier",
+            self.name,
         ]
         return exe_args
 
@@ -250,7 +252,7 @@ class TorchInferenceService(InferenceService):
 
 
 class TensorFlowInferenceService(InferenceService):
-    """The TorchInferenceService adds Torch-based inference capabilities
+    """The TensorFlowInferenceService adds TensorFlow-based inference capabilities
     to a workflow.
 
     Infastructure services are only compatible with the DragonLauncher.
