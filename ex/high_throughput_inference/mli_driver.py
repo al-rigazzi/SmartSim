@@ -12,7 +12,7 @@ from smartsim.entity import Application
 from smartsim.settings import LaunchSettings
 from smartsim.status import TERMINAL_STATUSES
 from smartsim.launchable.job import Job
-from smartsim.entity.inference_service import TorchInferenceService
+from smartsim.builders.inference_service import TorchInferenceService
 
 parser = argparse.ArgumentParser("Mock application")
 parser.add_argument("--log_max_batchsize", default=8, type=int)
@@ -58,12 +58,12 @@ exp = Experiment("MLI_benchmark", exp_path=exp_path)
 
 inference_service_ls: LaunchSettings = LaunchSettings("dragon")
 
-aff = []
+# aff = []
 
-inference_service_ls.launch_args.set_cpu_affinity(aff)
-inference_service_ls.launch_args.set_gpu_affinity([0, 1, 2, 3])
-if args.wm_node:
-    inference_service_ls.launch_args.set_hostlist([args.wm_node])
+# inference_service_ls.launch_args.set_cpu_affinity(aff)
+# inference_service_ls.launch_args.set_gpu_affinity([0, 1, 2, 3])
+# if args.wm_node:
+#     inference_service_ls.launch_args.set_hostlist([args.wm_node])
 
 inference_service = TorchInferenceService(
     "torch_server",
@@ -72,6 +72,7 @@ inference_service = TorchInferenceService(
     num_workers=NUM_WORKERS,
     batch_size=BATCH_SIZE,
     batch_timeout=BATCH_TIMEOUT,
+    hostnames=[args.wm_node],
 )
 
 inference_job = inference_service.build_jobs()

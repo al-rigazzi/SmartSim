@@ -49,10 +49,9 @@ logger = get_logger(__name__)
 # pylint: disable-next=too-many-public-methods
 
 
-class InfrastructureService(SmartSimEntity, abc.ABC):
-    """The InfrastructureService class is an abstract class
-    which defines how user-facing services (such as those used to run ML components)
-    can be defined and launched in workflows.
+class FeatureStoreService(InfrastructureService):
+    """The FeatureStoreService class adds a FeatureStore to the
+    workflow.
 
     Infastructure services are only compatible with the DragonLauncher.
 
@@ -62,15 +61,19 @@ class InfrastructureService(SmartSimEntity, abc.ABC):
         self,
         identifier: str | None,
         launch_settings: LaunchSettings,
+        managers_per_node: int = 2,
+        memory_per_node: int = 128 * (1024**2),
     ) -> None:
-        """Initialize an ``InfrastructureService``
-
-        Infrastructure services require a name and proper launch arguments.
+        """Initialize a ``FeatureStoreService``, which adds a distributed feature
+        store to the workflow.
 
         :param identifier: identifier which can be used by client apps, must be unique.
         across all infrastructure services; if one is not provided, a unique identifier
         is created.
-        :param launch_settings: launch settings defining how the service will run
+        :param launch_settings: launch settings defining how the service will run.
+        :param managers_per_node: how many manager processes should be launched on each
+        node on which the service is running.
+        
         :raises ValueError: if the launcher of launch_settings is not Dragon.
         """
 
@@ -83,17 +86,17 @@ class InfrastructureService(SmartSimEntity, abc.ABC):
 
     @property
     def launch_settings(self) -> LaunchSettings:
-        """Return the launch settings.
+        """Return the launch arguments.
 
-        :return: the launch settings
+        :return: the launch arguments
         """
         return self._launch_settings
 
     @launch_settings.setter
     def launch_settings(self, value: LaunchSettings) -> None:
-        """Set the launch settings.
+        """Set the launch arguments.
 
-        :param value: the launch settings
+        :param value: the launch arguments
         :raises ValueError: if the launcher of launch_settings is not Dragon
 
         """

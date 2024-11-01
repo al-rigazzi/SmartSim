@@ -41,9 +41,8 @@ from ..launchable import Job
 from ..log import get_logger
 from ..settings.launch_command import LauncherType
 from ..settings.launch_settings import DragonLaunchArguments, LaunchSettings
-from . import SmartSimEntity
-from .application import Application
 from .infrastructure_service import InfrastructureService
+from ..entity import Application
 
 logger = get_logger(__name__)
 
@@ -65,11 +64,13 @@ class InferenceService(InfrastructureService, abc.ABC):
     def __init__(
         self,
         identifier: str | None,
-        launch_settings: LaunchSettings,
         device: t.Literal["gpu", "cpu"] = "cpu",
         num_workers: int = 1,
         batch_size: int = 1,
         batch_timeout: float = 0.0,
+        cpu_affinities: list[list[int]] | None = None,
+        gpu_affinities: list[list[int]] | None = None,
+        hostnames: list[str] | None = None,
         toolkit: str = "",
     ) -> None:
         """Initialize an ``InferenceService``
@@ -84,22 +85,29 @@ class InferenceService(InfrastructureService, abc.ABC):
 
         :param identifier: identifier which can be used by client apps, must be unique
         across all infrastructure services; if one is not provided, a unique identifier
-        is created.
+        is created
         :param launch_settings: launch settings defining how the service will run.
-        :param device: Device to use for inference, can be "cpu" or "gpu".
+        :param device: Device to use for inference, can be "cpu" or "gpu"
         :param num_workers: Number of workers that should serve requests. If the
         ``device`` is "gpu", ``num_workers`` should be less or equal to the number
-        of available GPUs.
+        of available GPUs
         :param batch_size: how many *requests* should be batched together before
-        running inference.
+        running inference
         :param batch_timeout: how long (in seconds) the service should wait before
-        running inference on an incomplete batch.
-        :param toolkit: the toolkit to use to run inference.
-        :raises ValueError: if the launcher of launch_settings is not Dragon.
-        :raises SSUnsupportedError: if ``launch_arguments`` specifies a number of nodes
-        greater than one.
+        running inference on an incomplete batch
+        :param toolkit: the toolkit to use to run inference
+        :param cpu_affinities: list of CPU affinities; each list contains the ids of the
+        processors that should be bound to each worker
+        :param gpu_affinities: list of GPU affinities; each list contains the ids of the
+        GPUs that should be bound to each worker
+        :param hostnames: the host on which the service should be launched; currently
+        this service can only run on one host, which will be picked among the provided
+        ones
+        :raises ValueError: if the launcher of launch_settings is not Dragon
         """
-        super().__init__(identifier=identifier, launch_settings=launch_settings)
+        super().__init__(
+            identifier=identifier, num_nodes=1, hostnames=hostnames
+        )
         self._device = device
         """Device to use for inference"""
         self._num_workers = num_workers
@@ -111,47 +119,19 @@ class InferenceService(InfrastructureService, abc.ABC):
         an incomplete batch"""
         self._toolkit = toolkit
         """The type of worker to run"""
-
-    @property
-    def launch_settings(self) -> LaunchSettings:
-        """Return the launch settings.
-
-        :return: the launch settings
-        """
-        return self._launch_settings
-
-    @launch_settings.setter
-    def launch_settings(self, value: LaunchSettings) -> None:
-        """Set the launch arguments.
-
-        :param value: the launch arguments.
-        :raises ValueError: if the launcher of launch_settings is not Dragon.
-        :raises ValueError: if more than one node is requested by value
-        """
-        if value.launcher != LauncherType.Dragon.value:
-            raise ValueError(
-                "Infrastructure services can only be run with Dragon"
-                f" launcher, but {value.launcher} was supplied."
-            )
-
-        if "nodes" in value.launch_args._launch_args:
-            requested_nodes = value.launch_args._launch_args.get("nodes", 1)
-
-            if requested_nodes is not None and requested_nodes != 1:
-                raise SSUnsupportedError(
-                    f"{type(self).__name__} can only be launched on one"
-                    f"node, but {requested_nodes} nodes were requested"
-                )
-
-        self._launch_settings = copy.deepcopy(value)
-        """Launch settings"""
+        self._cpu_affinities = copy.deepcopy(cpu_affinities)
+        """CPU affinities of each worker"""
+        self._gpu_affinities = copy.deepcopy(gpu_affinities)
+        """GPU affinities of each worker"""
 
     def __str__(self) -> str:  # pragma: no cover
 
-        return textwrap.dedent(f"""\
+        return textwrap.dedent(
+            f"""\
             Identifier: {self.name}
             Type: {self.type}
-            """)
+            """
+        )
 
     def _build_exe_args(self) -> list[str]:
         exe_args = [
@@ -168,7 +148,7 @@ class InferenceService(InfrastructureService, abc.ABC):
             "--batch_timeout",
             str(self._batch_timeout),
             "--identifier",
-            self.name,
+            self.identifier,
         ]
         return exe_args
 
@@ -179,21 +159,19 @@ class InferenceService(InfrastructureService, abc.ABC):
         exe_args = self._build_exe_args()
 
         app = Application(
-            name=self.name,
+            name=self.identifier,
             exe=sys.executable,
             exe_args=exe_args,
         )
 
-        job = Job(app, launch_settings=self._launch_settings)
+        launch_settings = LaunchSettings(launcher=LauncherType.Dragon)
+        launch_settings.launch_args.set_nodes(1)
+        if self._hostnames:
+            launch_settings.launch_args.set_hostlist(self._hostnames)
+
+        job = Job(app, launch_settings=launch_settings)
 
         return [job]
-
-    def as_executable_sequence(self) -> t.Sequence[str]:
-        """Converts the executable and its arguments into a sequence of program arguments.
-
-        :return: a sequence of strings representing the executable and its arguments
-        """
-        return [sys.executable, *self._build_exe_args()]
 
 
 class TorchInferenceService(InferenceService):
@@ -212,6 +190,9 @@ class TorchInferenceService(InferenceService):
         num_workers: int = 1,
         batch_size: int = 1,
         batch_timeout: float = 0.0,
+        cpu_affinities: list[list[int]] | None = None,
+        gpu_affinities: list[list[int]] | None = None,
+        hostnames: list[str] | None = None,
     ) -> None:
         """Initialize a ``TorchInfrastructureService``
 
@@ -236,17 +217,24 @@ class TorchInferenceService(InferenceService):
         running inference.
         :param batch_timeout: how long (in seconds) the service should wait before
         running inference on an incomplete batch.
+        :param cpu_affinities: list of CPU affinities; each list contains the ids of the
+        processors that should be bound to each worker
+        :param gpu_affinities: list of GPU affinities; each list contains the ids of the
+        GPUs that should be bound to each worker
+        :param hostnames: the host on which the service should be launched; currently
+        this service can only run on one host, which will be picked among the provided
+        ones
         :raises ValueError: if the launcher of launch_settings is not Dragon.
-        :raises SSUnsupportedError: if ``launch_arguments`` specifies a number of nodes
-        greater than one.
         """
         super().__init__(
             identifier=identifier,
-            launch_settings=launch_settings,
             device=device,
             num_workers=num_workers,
             batch_size=batch_size,
             batch_timeout=batch_timeout,
+            cpu_affinities=cpu_affinities,
+            gpu_affinities=gpu_affinities,
+            hostnames=hostnames,
             toolkit="torch",
         )
 
@@ -267,6 +255,9 @@ class TensorFlowInferenceService(InferenceService):
         num_workers: int = 1,
         batch_size: int = 1,
         batch_timeout: float = 0.0,
+        cpu_affinities: list[list[int]] | None = None,
+        gpu_affinities: list[list[int]] | None = None,
+        hostnames: list[str] | None = None,
     ) -> None:
         """Initialize a ``TensorFlowInfrastructureService``
 
@@ -291,17 +282,24 @@ class TensorFlowInferenceService(InferenceService):
         running inference.
         :param batch_timeout: how long (in seconds) the service should wait before
         running inference on an incomplete batch.
+        :param cpu_affinities: list of CPU affinities; each list contains the ids of the
+        processors that should be bound to each worker
+        :param gpu_affinities: list of GPU affinities; each list contains the ids of the
+        GPUs that should be bound to each worker
+        :param hostnames: the host on which the service should be launched; currently
+        this service can only run on one host, which will be picked among the provided
+        ones
         :raises ValueError: if the launcher of launch_settings is not Dragon.
-        :raises SSUnsupportedError: if ``launch_arguments`` specifies a number of nodes
-        greater than one.
         """
         super().__init__(
             identifier=identifier,
-            launch_settings=launch_settings,
             device=device,
             num_workers=num_workers,
             batch_size=batch_size,
             batch_timeout=batch_timeout,
+            cpu_affinities=cpu_affinities,
+            gpu_affinities=gpu_affinities,
+            hostnames=hostnames,
             toolkit="tensorflow",
         )
 
@@ -352,10 +350,12 @@ class ONNXInferenceService(InferenceService):
         """
         super().__init__(
             identifier=identifier,
-            launch_settings=launch_settings,
             device=device,
             num_workers=num_workers,
             batch_size=batch_size,
             batch_timeout=batch_timeout,
+            cpu_affinities=cpu_affinities,
+            gpu_affinities=gpu_affinities,
+            hostnames=hostnames,
             toolkit="onnx",
         )
