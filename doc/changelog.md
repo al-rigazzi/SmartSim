@@ -13,7 +13,9 @@ Jump to:
 
 Description
 
+- Add user-facing API for infrastructure services
 - Add `TensorFlowWorker` and `ONNXWorker`
+- Fix symlink operation
 - RequestBatch rewrite
 - Fix regression on hostlist param to DragonRunRequest
 - Fix dragon build logging bug
