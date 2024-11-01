@@ -337,7 +337,21 @@ def _stringify_id(_id: int) -> str:
     raise TypeError(f"Argument is of type '{type(_id)}' not 'int'")
 
 
-class CrayExPlatformResult:
+def _stringify_id(_id: int) -> str:
+    """Return the CPU id as a string if an int, otherwise raise a ValueError
+
+    :params _id: the CPU id as an int
+    :returns: the CPU as a string
+    """
+    if isinstance(_id, int):
+        if _id < 0:
+            raise ValueError("CPU id must be a nonnegative number")
+        return str(_id)
+
+    raise TypeError(f"Argument is of type '{type(_id)}' not 'int'")
+
+
+class HSNPlatformResult:
     locate_msg = "Unable to locate `{0}`."
 
     def __init__(self, ldconfig: t.Optional[str], fi_info: t.Optional[str]) -> None:
@@ -356,7 +370,7 @@ class CrayExPlatformResult:
         return bool(self.fi_info)
 
     @property
-    def is_cray(self) -> bool:
+    def is_hsn(self) -> bool:
         return all(
             (
                 self.has_ldconfig,
@@ -389,11 +403,12 @@ class CrayExPlatformResult:
         return failure_messages
 
 
-def check_platform() -> CrayExPlatformResult:
-    """Returns True if the current platform is identified as Cray EX and
-    HSTA-aware dragon package can be installed, False otherwise.
+def check_platform() -> HSNPlatformResult:
+    """Queries the platform for system libraries to determine if the platform
+    has a compatible high speed network and an HSTA-aware dragon package can be
+    utilized.
 
-    :returns: True if current platform is Cray EX, False otherwise"""
+    :returns: A populated platform result"""
 
     # ldconfig -p | grep cray | grep pmi.so &&
     # ldconfig -p | grep cray | grep pmi2.so &&
@@ -402,7 +417,7 @@ def check_platform() -> CrayExPlatformResult:
     ldconfig = check_for_utility("ldconfig")
     fi_info = check_for_utility("fi_info")
 
-    result = CrayExPlatformResult(ldconfig, fi_info)
+    result = HSNPlatformResult(ldconfig, fi_info)
     if not all((result.has_ldconfig, result.has_fi_info)):
         return result
 
@@ -422,13 +437,110 @@ def check_platform() -> CrayExPlatformResult:
     return result
 
 
-def is_crayex_platform() -> bool:
-    """Returns True if the current platform is identified as Cray EX and
-    HSTA-aware dragon package can be installed, False otherwise.
+def is_hsn_platform() -> bool:
+    """Returns True if the current platform is identified as having a high
+    speed network and HSTA-aware dragon package can be installed, False
+    otherwise.
 
-    :returns: True if current platform is Cray EX, False otherwise"""
+    :returns: True if current platform is HSN compatible, False otherwise"""
     result = check_platform()
-    return result.is_cray
+    return result.is_hsn
+
+
+def first(predicate: t.Callable[[_T], bool], iterable: t.Iterable[_T]) -> _T | None:
+    """Return the first instance of an iterable that meets some precondition.
+    Any elements of the iterable that do not meet the precondition will be
+    forgotten. If no item in the iterable is found that meets the predicate,
+    `None` is returned. This is roughly equivalent to
+
+    .. highlight:: python
+    .. code-block:: python
+
+        next(filter(predicate, iterable), None)
+
+    but does not require the predicate to be a type guard to type check.
+
+    :param predicate: A function that returns `True` or `False` given a element
+                      of the iterable
+    :param iterable: An iterable that yields elements to evealuate
+    :returns: The first element of the iterable to make the the `predicate`
+              return `True`
+    """
+    return next((item for item in iterable if predicate(item)), None)
+
+
+def unique(iterable: t.Iterable[_HashableT]) -> t.Iterable[_HashableT]:
+    """Iterate over an iterable, yielding only unique values.
+
+    This helper function will maintain a set of seen values in memory and yield
+    any values not previously seen during iteration. This is nice if you know
+    you will be iterating over the iterable exactly once, but if you need to
+    iterate over the iterable multiple times, it would likely use less memory
+    to cast the iterable to a set first.
+
+    :param iterable: An iterable of possibly not unique values.
+    :returns: An iterable of unique values with order unchanged from the
+        original iterable.
+    """
+    seen = set()
+    for item in filter(lambda x: x not in seen, iterable):
+        seen.add(item)
+        yield item
+
+
+def group_by(
+    fn: t.Callable[[_T], _HashableT], items: t.Iterable[_T]
+) -> t.Mapping[_HashableT, t.Collection[_T]]:
+    """Iterate over an iterable and group the items based on the return of some
+    mapping function. Works similar to SQL's "GROUP BY" statement, but works
+    over an arbitrary mapping function.
+
+    :param fn: A function mapping the iterable values to some hashable values
+    :items: An iterable yielding items to group by mapping function return.
+    :returns: A mapping of mapping function return values to collection of
+        items that returned that value when fed to the mapping function.
+    """
+    groups = collections.defaultdict[_HashableT, list[_T]](list)
+    for item in items:
+        groups[fn(item)].append(item)
+    return dict(groups)
+
+
+def pack_params(
+    fn: t.Callable[[Unpack[_Ts]], _T]
+) -> t.Callable[[tuple[Unpack[_Ts]]], _T]:
+    r"""Take a function that takes an unspecified number of positional arguments
+    and turn it into a function that takes one argument of type `tuple` of
+    unspecified length. The main use case is largely just for iterating over an
+    iterable where arguments are "pre-zipped" into tuples. E.g.
+
+    .. highlight:: python
+    .. code-block:: python
+
+        def pretty_print_dict(d):
+            fmt_pair = lambda key, value: f"{repr(key)}: {repr(value)},"
+            body = "\n".join(map(pack_params(fmt_pair), d.items()))
+            #                    ^^^^^^^^^^^^^^^^^^^^^
+            print(f"{{\n{textwrap.indent(body, '    ')}\n}}")
+
+        pretty_print_dict({"spam": "eggs", "foo": "bar", "hello": "world"})
+        # prints:
+        # {
+        #     'spam': 'eggs',
+        #     'foo': 'bar',
+        #     'hello': 'world',
+        # }
+
+    :param fn: A callable that takes many positional parameters.
+    :returns: A callable that takes a single positional parameter of type tuple
+        of with the same shape as the original callable parameter list.
+    """
+
+    @functools.wraps(fn)
+    def packed(args: tuple[Unpack[_Ts]]) -> _T:
+        return fn(*args)
+
+    return packed
 
 
 def first(predicate: t.Callable[[_T], bool], iterable: t.Iterable[_T]) -> _T | None:

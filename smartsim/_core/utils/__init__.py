@@ -30,5 +30,5 @@ from .helpers import (
     delete_elements,
     execute_platform_cmd,
     expand_exe_path,
-    is_crayex_platform,
+    is_hsn_platform,
 )

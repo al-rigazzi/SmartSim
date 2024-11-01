@@ -23,6 +23,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import collections
 import functools
 import itertools
@@ -31,7 +32,6 @@ import socket
 import time
 import typing as t
 from dataclasses import dataclass, field
-from enum import Enum
 from threading import RLock
 
 from tabulate import tabulate
@@ -81,12 +81,7 @@ from ...utils.helpers import create_short_id_str
 logger = get_logger(__name__)
 
 
-class DragonStatus(str, Enum):
-    ERROR = "Error"
-    RUNNING = "Running"
-
-    def __str__(self) -> str:
-        return self.value
+_RETURN_CODES_NO_PROCESS_GROUP: t.Final = [-1]
 
 
 @dataclass
@@ -95,19 +90,59 @@ class ProcessGroupInfo:
     """Status of step"""
     process_group: t.Optional[dragon_process_group.ProcessGroup] = None
     """Internal Process Group object, None for finished or not started steps"""
-    puids: t.Optional[t.List[t.Optional[int]]] = None  # puids can be None
-    """List of Process UIDS belonging to the ProcessGroup"""
-    return_codes: t.Optional[t.List[int]] = None
-    """List of return codes of completed processes"""
     hosts: t.List[str] = field(default_factory=list)
     """List of hosts on which the Process Group should be executed"""
     redir_workers: t.Optional[dragon_process_group.ProcessGroup] = None
     """Workers used to redirect stdout and stderr to file"""
+    _final_return_codes: t.Optional[t.List[int]] = field(default=None, init=False)
+    """Field to cache final statuses when a process group info is marked as
+    completed so that the underlying process group can be released.
+    """
 
     @property
     def smartsim_info(self) -> t.Tuple[JobStatus, t.Optional[t.List[int]]]:
         """Information needed by SmartSim Launcher and Job Manager"""
         return (self.status, self.return_codes)
+
+    @property
+    def puids(self) -> t.List[int]:
+        """List of Process IDs belonging to the ProcessGroup.
+
+        :returns: List of Process IDs belonging to the ProcessGroup.
+        """
+        return list(set(itertools.chain(self.active_puids, self.inactive_puids)))
+
+    @property
+    def active_puids(self) -> t.List[int]:
+        """List of process IDs that are running.
+
+        :returns: List of process IDs that are running.
+        """
+        if self.process_group is None:
+            return []
+        return list(self.process_group.puids)
+
+    @property
+    def inactive_puids(self) -> t.List[int]:
+        """List of process IDs that have completed.
+
+        :returns: List of process IDs that have completed.
+        """
+        if self.process_group is None:
+            return []
+        return [puid for puid, _ in self.process_group.inactive_puids]
+
+    @property
+    def return_codes(self) -> t.List[int]:
+        """List of return codes of completed processes.
+
+        :returns: List of return codes of completed processes.
+        """
+        if self._final_return_codes is not None:
+            return self._final_return_codes
+        if self.process_group is None:
+            return _RETURN_CODES_NO_PROCESS_GROUP
+        return [ret for _, ret in self.process_group.inactive_puids]
 
     def __str__(self) -> str:
         if self.process_group is not None and self.redir_workers is not None:
@@ -119,10 +154,24 @@ class ProcessGroupInfo:
 
         if self.hosts is not None:
             msg.append(f"Hosts: {','.join(self.hosts)}")
-        if self.return_codes is not None:
+        if self.return_codes:
             msg.append(f"{self.return_codes}")
 
         return ", ".join(msg)
+
+    def mark_complete(self) -> None:
+        """Cache the final return codes and release any underlying dragon
+        process groups.
+        """
+        if self.process_group is not None:
+            self.process_group.join()
+            self._final_return_codes = self.return_codes
+            self.process_group.close()
+            self.process_group = None
+        if self.redir_workers is not None:
+            self.redir_workers.join()
+            self.redir_workers.close()
+            self.redir_workers = None
 
 
 # Thanks to Colin Wahl from HPE HPC Dragon Team
@@ -526,10 +575,10 @@ class DragonBackend:
                 else:
                     # Technically we could just terminate, but what if
                     # the application intercepts that and ignores it?
-                    proc_group = self._group_infos[step_id].process_group
+                    group_info = self._group_infos[step_id]
                     if (
-                        proc_group is not None
-                        and proc_group.status == DragonStatus.RUNNING
+                        group_info.active_puids
+                        and (proc_group := group_info.process_group) is not None
                     ):
                         try:
                             proc_group.stop()
@@ -538,7 +587,7 @@ class DragonBackend:
                                 proc_group.kill()
                             except dragon_process_group.DragonProcessGroupError:
                                 logger.error("Process group already stopped")
-                    redir_group = self._group_infos[step_id].redir_workers
+                    redir_group = group_info.redir_workers
                     if redir_group is not None:
                         try:
                             redir_group.join(0.1)
@@ -547,7 +596,6 @@ class DragonBackend:
                             logger.error(e)
 
                 self._group_infos[step_id].status = JobStatus.CANCELLED
-                self._group_infos[step_id].return_codes = [-9]
 
     def _create_backbone(self) -> BackboneFeatureStore:
         """
@@ -713,22 +761,19 @@ class DragonBackend:
                     logger.error(e)
                     grp_status = JobStatus.FAILED
 
-                puids = None
                 try:
-                    puids = list(
-                        set(grp.puids + [puid for puid, retcode in grp.inactive_puids])
-                    )
-                    self._group_infos[step_id] = ProcessGroupInfo(
+                    grp_info = ProcessGroupInfo(
                         process_group=grp,
-                        puids=puids,
-                        return_codes=[],
                         status=grp_status,
                         hosts=hosts,
                     )
+                    puids = grp_info.puids
+                    self._group_infos[step_id] = grp_info
                     self._running_steps.append(step_id)
                     started.append(step_id)
                 except Exception as e:
                     logger.error(e)
+                    puids = None
 
                 if (
                     puids is not None
@@ -777,32 +822,15 @@ class DragonBackend:
                 grp = group_info.process_group
                 if grp is None:
                     group_info.status = JobStatus.FAILED
-                    group_info.return_codes = [-1]
                 elif group_info.status not in TERMINAL_STATUSES:
-                    if grp.status == str(DragonStatus.RUNNING):
+                    if group_info.active_puids:
                         group_info.status = JobStatus.RUNNING
-                    else:
-                        puids = group_info.puids
-                        if puids is not None and all(
-                            puid is not None for puid in puids
-                        ):
-                            try:
-                                group_info.return_codes = [
-                                    dragon_process.Process(None, ident=puid).returncode
-                                    for puid in puids
-                                ]
-                            except (ValueError, TypeError) as e:
-                                logger.error(e)
-                                group_info.return_codes = [-1 for _ in puids]
-                        else:
-                            group_info.return_codes = [0]
-                        if not group_info.status == JobStatus.CANCELLED:
-                            group_info.status = (
-                                JobStatus.FAILED
-                                if any(group_info.return_codes)
-                                or grp.status == DragonStatus.ERROR
-                                else JobStatus.COMPLETED
-                            )
+                    elif group_info.status != JobStatus.CANCELLED:
+                        group_info.status = (
+                            JobStatus.FAILED
+                            if any(group_info.return_codes)
+                            else JobStatus.COMPLETED
+                        )
 
                 if group_info.status in TERMINAL_STATUSES:
                     terminated.add(step_id)
@@ -828,8 +856,7 @@ class DragonBackend:
                             if not self._allocated_hosts[host]:
                                 self._allocated_hosts.pop(host)
                         self._prioritizer.decrement(host, step_id)
-                    group_info.process_group = None
-                    group_info.redir_workers = None
+                    group_info.mark_complete()
 
     def _update_shutdown_status(self) -> None:
         """Query the status of running tasks and update the status
@@ -905,7 +932,7 @@ class DragonBackend:
             honorable, err = self._can_honor(request)
             if not honorable:
                 self._group_infos[step_id] = ProcessGroupInfo(
-                    status=JobStatus.FAILED, return_codes=[-1]
+                    status=JobStatus.FAILED
                 )
             else:
                 self._queued_steps[step_id] = request
@@ -975,12 +1002,7 @@ class DragonBackendView:
         else:
             table_line.append("")
 
-        if proc_group_info.return_codes is not None:
-            table_line.append(
-                f"{','.join(str(ret) for ret in proc_group_info.return_codes)}"
-            )
-        else:
-            table_line.append("")
+        table_line.append(",".join(str(ret) for ret in proc_group_info.return_codes))
 
         if proc_group_info.puids is not None:
             table_line.append(f"{len(proc_group_info.puids)}")

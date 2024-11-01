@@ -24,6 +24,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import itertools
 import pathlib
 import sys
 import tarfile
@@ -57,7 +58,7 @@ from smartsim.error.errors import SmartSimCLIActionCancelled
 pytestmark = pytest.mark.group_a
 
 
-mock_archive_name = "dragon-0.8-py3.9.4.1-CRAYEX-ac132fe95.tar.gz"
+mock_archive_name = "dragon-0.10-py3.9.4.1-HSN-ac132fe95.tar.gz"
 _git_attr = namedtuple("_git_attr", "value")
 
 
@@ -120,24 +121,21 @@ def test_assets(monkeypatch: pytest.MonkeyPatch) -> t.Dict[str, GitReleaseAsset]
     assets: t.List[GitReleaseAsset] = []
     mock_archive_name_tpl = "{}-{}.4.1-{}ac132fe95.tar.gz"
 
-    for python_version in ["py3.9", "py3.10", "py3.11"]:
-        for dragon_version in ["dragon-0.8", "dragon-0.9", "dragon-0.10"]:
-            for platform in ["", "CRAYEX-"]:
-
-                asset = GitReleaseAsset(requester, headers, attributes, completed)
-
-                archive_name = mock_archive_name_tpl.format(
-                    dragon_version, python_version, platform
-                )
-
-                monkeypatch.setattr(
-                    asset,
-                    "_browser_download_url",
-                    _git_attr(value=f"http://foo/{archive_name}"),
-                )
-                monkeypatch.setattr(asset, "_name", _git_attr(value=archive_name))
+    for python_version, dragon_version, platform in itertools.product(
+        ["py3.9", "py3.10", "py3.11"], ["dragon-0.10", "dragon-0.11"], ["", "HSN-"]
+    ):
+        asset = GitReleaseAsset(requester, headers, attributes, completed)
+        archive_name = mock_archive_name_tpl.format(
+            dragon_version, python_version, platform
+        )
+        monkeypatch.setattr(
+            asset,
+            "_browser_download_url",
+            _git_attr(value=f"http://foo/{archive_name}"),
+        )
+        monkeypatch.setattr(asset, "_name", _git_attr(value=archive_name))
                 monkeypatch.setattr(asset, "_id", _git_attr(value=123))
-                assets.append(asset)
+        assets.append(asset)
 
     return assets
 
@@ -249,31 +247,44 @@ def test_retrieve_updated(
 
 
 @pytest.mark.parametrize(
-    "dragon_pin,pyv,is_found,is_crayex",
+    "dragon_pin,pyv,is_found,is_hsn",
     [
+        # Dragon V0.8
         pytest.param("0.8", "py3.8", False, False, id="0.8,python 3.8"),
-        pytest.param("0.8", "py3.9", True, False, id="0.8,python 3.9"),
-        pytest.param("0.8", "py3.10", True, False, id="0.8,python 3.10"),
-        pytest.param("0.8", "py3.11", True, False, id="0.8,python 3.11"),
+        pytest.param("0.8", "py3.9", False, False, id="0.8,python 3.9"),
+        pytest.param("0.8", "py3.10", False, False, id="0.8,python 3.10"),
+        pytest.param("0.8", "py3.11", False, False, id="0.8,python 3.11"),
         pytest.param("0.8", "py3.12", False, False, id="0.8,python 3.12"),
-        pytest.param("0.8", "py3.8", False, True, id="0.8,python 3.8,CrayEX"),
-        pytest.param("0.8", "py3.9", True, True, id="0.8,python 3.9,CrayEX"),
-        pytest.param("0.8", "py3.10", True, True, id="0.8,python 3.10,CrayEX"),
-        pytest.param("0.8", "py3.11", True, True, id="0.8,python 3.11,CrayEX"),
-        pytest.param("0.8", "py3.12", False, True, id="0.8,python 3.12,CrayEX"),
+        pytest.param("0.8", "py3.8", False, True, id="0.8,python 3.8,HSN"),
+        pytest.param("0.8", "py3.9", False, True, id="0.8,python 3.9,HSN"),
+        pytest.param("0.8", "py3.10", False, True, id="0.8,python 3.10,HSN"),
+        pytest.param("0.8", "py3.11", False, True, id="0.8,python 3.11,HSN"),
+        pytest.param("0.8", "py3.12", False, True, id="0.8,python 3.12,HSN"),
+        # Dragon V0.9
         pytest.param("0.9", "py3.8", False, False, id="0.9,python 3.8"),
-        pytest.param("0.9", "py3.9", True, False, id="0.9,python 3.9"),
-        pytest.param("0.9", "py3.10", True, False, id="0.9,python 3.10"),
-        pytest.param("0.9", "py3.11", True, False, id="0.9,python 3.11"),
+        pytest.param("0.9", "py3.9", False, False, id="0.9,python 3.9"),
+        pytest.param("0.9", "py3.10", False, False, id="0.9,python 3.10"),
+        pytest.param("0.9", "py3.11", False, False, id="0.9,python 3.11"),
         pytest.param("0.9", "py3.12", False, False, id="0.9,python 3.12"),
-        pytest.param("0.9", "py3.8", False, True, id="0.9,python 3.8,CrayEX"),
-        pytest.param("0.9", "py3.9", True, True, id="0.9,python 3.9,CrayEX"),
-        pytest.param("0.9", "py3.10", True, True, id="0.9,python 3.10,CrayEX"),
-        pytest.param("0.9", "py3.11", True, True, id="0.9,python 3.11,CrayEX"),
-        pytest.param("0.9", "py3.12", False, True, id="0.9,python 3.12,CrayEX"),
+        pytest.param("0.9", "py3.8", False, True, id="0.9,python 3.8,HSN"),
+        pytest.param("0.9", "py3.9", False, True, id="0.9,python 3.9,HSN"),
+        pytest.param("0.9", "py3.10", False, True, id="0.9,python 3.10,HSN"),
+        pytest.param("0.9", "py3.11", False, True, id="0.9,python 3.11,HSN"),
+        pytest.param("0.9", "py3.12", False, True, id="0.9,python 3.12,HSN"),
+        # Dragon V0.10
+        pytest.param("0.10", "py3.8", False, False, id="0.10,python 3.8"),
+        pytest.param("0.10", "py3.9", True, False, id="0.10,python 3.9"),
+        pytest.param("0.10", "py3.10", True, False, id="0.10,python 3.10"),
+        pytest.param("0.10", "py3.11", True, False, id="0.10,python 3.11"),
+        pytest.param("0.10", "py3.12", False, False, id="0.10,python 3.12"),
+        pytest.param("0.10", "py3.8", False, True, id="0.10,python 3.8,HSN"),
+        pytest.param("0.10", "py3.9", True, True, id="0.10,python 3.9,HSN"),
+        pytest.param("0.10", "py3.10", True, True, id="0.10,python 3.10,HSN"),
+        pytest.param("0.10", "py3.11", True, True, id="0.10,python 3.11,HSN"),
+        pytest.param("0.10", "py3.12", False, True, id="0.10,python 3.12,HSN"),
         # add a couple variants for a dragon version that isn't in the asset list
         pytest.param("0.7", "py3.9", False, False, id="0.7,python 3.9"),
-        pytest.param("0.7", "py3.9", False, True, id="0.7,python 3.9,CrayEX"),
+        pytest.param("0.7", "py3.9", False, True, id="0.7,python 3.9,HSN"),
     ],
 )
 def test_retrieve_asset_info(
@@ -283,11 +294,11 @@ def test_retrieve_asset_info(
     dragon_pin: str,
     pyv: str,
     is_found: bool,
-    is_crayex: bool,
+    is_hsn: bool,
     test_dir: str,
 ) -> None:
     """Verify that an information is retrieved correctly based on the python
-    version, platform (e.g. CrayEX, !CrayEx), and target dragon pin"""
+    version, platform (e.g. HSN, !HSN), and target dragon pin"""
 
     with monkeypatch.context() as ctx:
         ctx.setattr(
@@ -297,8 +308,8 @@ def test_retrieve_asset_info(
         )
         ctx.setattr(
             smartsim._core._cli.scripts.dragon_install,
-            "is_crayex_platform",
-            lambda: is_crayex,
+            "is_hsn_platform",
+            lambda: is_hsn,
         )
         # avoid hitting github API
         ctx.setattr(
@@ -322,10 +333,10 @@ def test_retrieve_asset_info(
             assert pyv in chosen_asset.name
             assert dragon_pin in chosen_asset.name
 
-            if is_crayex:
-                assert "crayex" in chosen_asset.name.lower()
+            if is_hsn:
+                assert "hsn" in chosen_asset.name.lower()
             else:
-                assert "crayex" not in chosen_asset.name.lower()
+                assert "hsn" not in chosen_asset.name.lower()
         else:
             with pytest.raises(SmartSimCLIActionCancelled):
                 retrieve_asset_info(request)
@@ -346,8 +357,8 @@ def test_check_for_utility_exists() -> None:
     assert utility
 
 
-def test_is_crayex_missing_ldconfig(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure the cray ex platform check doesn't fail when ldconfig isn't
+def test_is_hsn_missing_ldconfig(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure the HSN platform check doesn't fail when ldconfig isn't
     available for use"""
 
     def mock_util_check(util: str) -> str:
@@ -363,12 +374,11 @@ def test_is_crayex_missing_ldconfig(monkeypatch: pytest.MonkeyPatch) -> None:
             mock_util_check,
         )
 
-        is_cray = helpers.is_crayex_platform()
-        assert not is_cray
+        assert not helpers.is_hsn_platform()
 
 
-def test_is_crayex_missing_fi_info(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure the cray ex platform check doesn't fail when fi_info isn't
+def test_is_hsn_missing_fi_info(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure the HSN platform check doesn't fail when fi_info isn't
     available for use"""
 
     def mock_util_check(util: str) -> str:
@@ -384,14 +394,13 @@ def test_is_crayex_missing_fi_info(monkeypatch: pytest.MonkeyPatch) -> None:
             mock_util_check,
         )
 
-        is_cray = helpers.is_crayex_platform()
-        assert not is_cray
+        assert not helpers.is_hsn_platform()
 
 
 @pytest.mark.parametrize(
-    "is_cray,output,return_code",
+    "is_hsn,output,return_code",
     [
-        pytest.param(True, "cray pmi2.so\ncxi\ncray pmi.so\npni.so", 0, id="CrayEX"),
+        pytest.param(True, "cray pmi2.so\ncxi\ncray pmi.so\npni.so", 0, id="Cray PMI"),
         pytest.param(False, "cray pmi2.so\ncxi\npni.so", 0, id="No PMI"),
         pytest.param(False, "cxi\ncray pmi.so\npni.so", 0, id="No PMI 2"),
         pytest.param(False, "cray pmi2.so\ncray pmi.so\npni.so", 0, id="No CXI"),
@@ -399,10 +408,10 @@ def test_is_crayex_missing_fi_info(monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.param(False, "cray pmi.so\npmi2.so\ncxi", 0, id="Non Cray PMI2"),
     ],
 )
-def test_is_cray_ex(
-    monkeypatch: pytest.MonkeyPatch, is_cray: bool, output: str, return_code: int
+def test_is_hsn(
+    monkeypatch: pytest.MonkeyPatch, is_hsn: bool, output: str, return_code: int
 ) -> None:
-    """Test that cray ex platform check result is returned as expected"""
+    """Test that HSN platform check result is returned as expected"""
 
     def mock_util_check(util: str) -> bool:
         # mock that we have the necessary tools
@@ -422,8 +431,8 @@ def test_is_cray_ex(
             lambda x: (output, return_code),
         )
 
-        platform_result = helpers.is_crayex_platform()
-        assert is_cray == platform_result
+        platform_result = helpers.is_hsn_platform()
+        assert is_hsn == platform_result
 
 
 def test_install_package_no_wheel(test_dir: str, extraction_dir: pathlib.Path):

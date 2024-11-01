@@ -15,7 +15,7 @@ from github.Repository import Repository
 from smartsim._core._cli.utils import pip
 from smartsim._core._install.utils import retrieve
 from smartsim._core.config import CONFIG
-from smartsim._core.utils.helpers import check_platform, is_crayex_platform
+from smartsim._core.utils.helpers import check_platform, is_hsn_platform
 from smartsim.error.errors import SmartSimCLIActionCancelled
 from smartsim.log import get_logger
 
@@ -124,15 +124,21 @@ def python_version() -> str:
     return f"py{sys.version_info.major}.{sys.version_info.minor}"
 
 
+def dragon_pin() -> str:
+    """Return a string indicating the pinned major/minor version of the dragon
+    package to install"""
+    return "0.10"
+
+
 def _platform_filter(asset_name: str) -> bool:
     """Return True if the asset name matches naming standard for current
     platform (Cray or non-Cray). Otherwise, returns False.
 
     :param asset_name: A value to inspect for keywords indicating a Cray EX asset
     :returns: True if supplied value is correct for current platform"""
-    key = "crayex"
+    key = "hsn"
     is_cray = key in asset_name.lower()
-    if is_crayex_platform():
+    if is_hsn_platform():
         return is_cray
     return not is_cray
 
@@ -270,7 +276,8 @@ def retrieve_asset_info(request: DragonInstallRequest) -> GitReleaseAsset:
     asset = filter_assets(request, assets)
 
     platform_result = check_platform()
-    if not platform_result.is_cray:
+    if not platform_result.is_hsn:
+        logger.warning("Installing Dragon without HSTA support")
         for msg in platform_result.failures:
             logger.warning(msg)
         logger.warning("Installing Dragon without HSTA support")

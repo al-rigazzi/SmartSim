@@ -13,6 +13,35 @@ Jump to:
 
 Description
 
+- Update the `DragonBackend` to use
+  [Dragon V0.10](https://github.com/DragonHPC/dragon/releases/tag/v0.10-beta)
+- Implement workaround for Tensorflow that allows RedisAI to build with GCC-14
+- Add instructions for installing SmartSim on PML's Scylla
+
+Detailed Notes
+
+- Dragon V0.10 introduced support for infiniband networks and largely
+  overhauled the ``ProcessGroup`` API, used widely throughout SmartSim's
+  ``DragonBackend``, for better readability and debugging.  SmartSim has has
+  adopted this new version of Dragon to take advantage of these improvements.
+  ([SmartSim-PR753](https://github.com/CrayLabs/SmartSim/pull/753))
+- In libtensorflow, the input argument to TF_SessionRun seems to be mistyped to
+  TF_Output instead of TF_Input. These two types differ only in name. GCC-14
+  catches this and throws an error, even though earlier versions allow this. To
+  solve this problem, patches are applied to the Tensorflow backend in RedisAI.
+  Future versions of Tensorflow may fix this problem, but for now this seems to be
+  the best workaround.
+  ([SmartSim-PR738](https://github.com/CrayLabs/SmartSim/pull/738))
+- PML's Scylla is still under development. The usual SmartSim
+  build instructions do not apply because the GPU dependencies
+  have yet to be installed at a system-wide level. Scylla has
+  its own entry in the documentation.
+  ([SmartSim-PR733](https://github.com/CrayLabs/SmartSim/pull/733))
+
+
+### 0.8.0
+
+Released on 27 September, 2024
 - Add user-facing API for infrastructure services
 - Add `TensorFlowWorker` and `ONNXWorker`
 - Fix symlink operation
