@@ -67,7 +67,6 @@ inference_service_ls: LaunchSettings = LaunchSettings("dragon")
 
 inference_service = TorchInferenceService(
     "torch_server",
-    launch_settings=inference_service_ls,
     device=args.device,
     num_workers=NUM_WORKERS,
     batch_size=BATCH_SIZE,

@@ -1,0 +1,243 @@
+# BSD 2-Clause License
+#
+# Copyright (c) 2021-2024, Hewlett Packard Enterprise
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+# pylint: disable=import-error
+import dragon.infrastructure.policy as dragon_policy
+import dragon.infrastructure.process_desc as dragon_process_desc
+import dragon.native.process as dragon_process
+from dragon import fli
+from dragon.channels import Channel
+from dragon.data.ddict.ddict import DDict
+from dragon.globalservices.api_setup import connect_to_infrastructure
+
+# pylint: enable=import-error
+
+# isort: off
+# isort: on
+
+import argparse
+import base64
+import multiprocessing as mp
+import os
+import socket
+import time
+import typing as t
+
+from smartsim._core.entrypoints.service import Service
+from smartsim._core.mli.comm.channel.dragon_channel import DragonCommChannel
+from smartsim._core.mli.comm.channel.dragon_fli import DragonFLIChannel
+from smartsim._core.mli.comm.channel.dragon_util import create_local
+from smartsim._core.mli.infrastructure.control.request_dispatcher import (
+    RequestDispatcher,
+)
+from smartsim._core.mli.infrastructure.control.worker_manager import WorkerManager
+from smartsim._core.mli.infrastructure.environment_loader import EnvironmentConfigLoader
+from smartsim._core.mli.infrastructure.storage.backbone_feature_store import (
+    BackboneFeatureStore,
+)
+from smartsim._core.mli.infrastructure.storage.dragon_feature_store import (
+    DragonFeatureStore,
+)
+from smartsim.log import get_logger
+
+logger = get_logger("Worker Manager Entry Point")
+
+mp.set_start_method("dragon")
+
+pid = os.getpid()
+affinity = os.sched_getaffinity(pid)
+logger.info(f"Entry point: {socket.gethostname()}, {affinity}")
+logger.info(f"CPUS: {os.cpu_count()}")
+
+
+def service_as_dragon_proc(
+    service: Service, cpu_affinity: list[int], gpu_affinity: list[int]
+) -> dragon_process.Process:
+
+    options = dragon_process_desc.ProcessOptions(make_inf_channels=True)
+    local_policy = dragon_policy.Policy(
+        placement=dragon_policy.Policy.Placement.HOST_NAME,
+        host_name=socket.gethostname(),
+        cpu_affinity=cpu_affinity,
+        gpu_affinity=gpu_affinity,
+    )
+    return dragon_process.Process(
+        target=service.execute,
+        args=[],
+        cwd=os.getcwd(),
+        policy=local_policy,
+        options=options,
+        stderr=dragon_process.Popen.STDOUT,
+        stdout=dragon_process.Popen.STDOUT,
+    )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("Worker Manager")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="gpu",
+        choices="gpu cpu".split(),
+        help="Device on which the inference takes place",
+    )
+    parser.add_argument(
+        "--toolkit",
+        type=str,
+        choices=["torch", "tensorflow", "onnx"],
+        required=True,
+        help="Serialized class of worker to run",
+    )
+    parser.add_argument(
+        "--num_workers", type=int, default=1, help="Number of workers to run"
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="How many requests the workers will try "
+        "to aggregate before processing them",
+    )
+    parser.add_argument(
+        "--batch_timeout",
+        type=float,
+        default=0.001,
+        help="How much time (in seconds) should be waited "
+        "before processing an incomplete aggregated request",
+    )
+    parser.add_argument(
+        "--identifier",
+        type=str,
+        required=True,
+        help="Unique identifier for this service",
+    )
+    args = parser.parse_args()
+
+    connect_to_infrastructure()
+    ddict_str = os.environ[BackboneFeatureStore.MLI_BACKBONE]
+
+    backbone: BackboneFeatureStore = BackboneFeatureStore(
+        BackboneFeatureStore.from_descriptor(ddict_str), allow_reserved_writes=True
+    )
+
+    to_worker_channel = create_local()
+    to_worker_fli = fli.FLInterface(main_ch=to_worker_channel, manager_ch=None)
+    to_worker_fli_comm_ch = DragonFLIChannel(to_worker_fli)
+
+    backbone._storage._allow_reserved_writes = True
+    backbone.worker_queue = to_worker_fli_comm_ch.descriptor
+    backbone._storage._allow_reserved_writes = False
+
+    os.environ[BackboneFeatureStore.MLI_WORKER_QUEUE] = to_worker_fli_comm_ch.descriptor
+    os.environ[BackboneFeatureStore.MLI_BACKBONE] = backbone.descriptor
+
+    backbone[args.identifier] = to_worker_fli_comm_ch.descriptor
+
+    worker_type: type
+    if args.toolkit == "torch":
+        from smartsim._core.mli.infrastructure.worker.torch_worker import TorchWorker
+
+        worker_type = TorchWorker
+    elif args.toolkit == "tensorflow":
+        from smartsim._core.mli.infrastructure.worker.tensorflow_worker import (
+            TensorFlowWorker,
+        )
+
+        worker_type = TensorFlowWorker
+    elif args.toolkit == "onnx":
+        from smartsim._core.mli.infrastructure.worker.onnx_worker import ONNXWorker
+
+        worker_type = ONNXWorker
+
+    config_loader = EnvironmentConfigLoader(
+        featurestore_factory=DragonFeatureStore.from_descriptor,
+        callback_factory=DragonCommChannel.from_descriptor,
+        queue_factory=DragonFLIChannel.from_descriptor,
+    )
+
+    dispatcher = RequestDispatcher(
+        batch_timeout=args.batch_timeout,
+        batch_size=args.batch_size,
+        config_loader=config_loader,
+        worker_type=worker_type,
+        mem_pool_size=128 * 1024**3,
+    )
+
+    wms = []
+    worker_device = args.device
+    for wm_idx in range(args.num_workers):
+
+        worker_manager = WorkerManager(
+            config_loader=config_loader,
+            worker_type=worker_type,
+            as_service=True,
+            cooldown=10,
+            device=worker_device,
+            dispatcher_queue=dispatcher.task_queue,
+        )
+
+        wms.append(worker_manager)
+
+    wm_affinity: list[int] = []
+    disp_affinity: list[int] = []
+
+    # This is hardcoded for a specific type of node:
+    # the GPU-to-CPU mapping is taken from the nvidia-smi tool
+    # TODO can this be computed on the fly?
+    gpu_to_cpu_aff: dict[int, list[int]] = {}
+    gpu_to_cpu_aff[0] = list(range(48, 64)) + list(range(112, 128))
+    gpu_to_cpu_aff[1] = list(range(32, 48)) + list(range(96, 112))
+    gpu_to_cpu_aff[2] = list(range(16, 32)) + list(range(80, 96))
+    gpu_to_cpu_aff[3] = list(range(0, 16)) + list(range(64, 80))
+
+    worker_manager_procs = []
+    for worker_idx in range(args.num_workers):
+        worker_manager = wms[worker_idx]
+        wm_cpus = len(gpu_to_cpu_aff[worker_idx]) - 4
+        wm_affinity = gpu_to_cpu_aff[worker_idx][:wm_cpus]
+        disp_affinity.extend(gpu_to_cpu_aff[worker_idx][wm_cpus:])
+        worker_manager_procs.append(
+            service_as_dragon_proc(
+                worker_manager, cpu_affinity=wm_affinity, gpu_affinity=[worker_idx]
+            )
+        )
+
+    dispatcher_proc = service_as_dragon_proc(
+        dispatcher, cpu_affinity=disp_affinity, gpu_affinity=[]
+    )
+
+    # TODO: use ProcessGroup and restart=True?
+    all_procs = [dispatcher_proc, *worker_manager_procs]
+
+    for proc in all_procs:
+        proc.start()
+
+    while all(proc.is_alive for proc in all_procs):
+        time.sleep(1)
+
+    for proc in all_procs:
+        logger.info(f"{proc} is alive: {proc.is_alive}")

@@ -164,12 +164,12 @@ class ProcessGroupInfo:
         process groups.
         """
         if self.process_group is not None:
-            self.process_group.join()
+            # self.process_group.join()
             self._final_return_codes = self.return_codes
             self.process_group.close()
             self.process_group = None
         if self.redir_workers is not None:
-            self.redir_workers.join()
+            # self.redir_workers.join()
             self.redir_workers.close()
             self.redir_workers = None
 
@@ -453,7 +453,7 @@ class DragonBackend:
         valid_hosts = all_hosts.intersection(requested_hosts)
         invalid_hosts = requested_hosts - valid_hosts
 
-        logger.debug(f"{num_nodes=}{valid_hosts=}{invalid_hosts=}")
+        logger.debug(f"{num_nodes=} {valid_hosts=} {invalid_hosts=}")
 
         if invalid_hosts:
             logger.warning(f"Some invalid hostnames were requested: {invalid_hosts}")
@@ -737,6 +737,7 @@ class DragonBackend:
                 for node_name in hosts:
                     local_policy = self.create_run_policy(request, node_name)
                     policies.extend([local_policy] * request.tasks_per_node)
+                    logger.debug(request.path)
                     tmp_proc = dragon_process.ProcessTemplate(
                         target=request.exe,
                         args=request.exe_args,

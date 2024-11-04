@@ -27,6 +27,7 @@
 
 import argparse
 import io
+import os
 from mpi4py import MPI
 import torch
 
@@ -93,6 +94,8 @@ if __name__ == "__main__":
     parser.add_argument("--device", default="cpu", type=str)
     parser.add_argument("--log_max_batchsize", default=8, type=int)
     args = parser.parse_args()
+
+    print(os.getcwd())
 
     resnet = ResNetWrapper(
         "resnet50",

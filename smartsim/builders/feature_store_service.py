@@ -60,7 +60,8 @@ class FeatureStoreService(InfrastructureService):
     def __init__(
         self,
         identifier: str | None,
-        launch_settings: LaunchSettings,
+        num_nodes,
+        hostnames,
         managers_per_node: int = 2,
         memory_per_node: int = 128 * (1024**2),
     ) -> None:
@@ -73,7 +74,7 @@ class FeatureStoreService(InfrastructureService):
         :param launch_settings: launch settings defining how the service will run.
         :param managers_per_node: how many manager processes should be launched on each
         node on which the service is running.
-        
+
         :raises ValueError: if the launcher of launch_settings is not Dragon.
         """
 

@@ -526,11 +526,11 @@ class DragonConnector:
         """
         client = dragon_sockets.as_client(socket)
         with DRG_LOCK:
-            # logger.debug(f"Sending {type(request).__name__}: {request}")
+            logger.debug(f"Sending {type(request).__name__}: {request}")
             client.send(request, send_flags)
             response = client.recv(flags=recv_flags)
 
-            # logger.debug(f"Received {type(response).__name__}: {response}")
+            logger.debug(f"Received {type(response).__name__}: {response}")
             return response
 
 
