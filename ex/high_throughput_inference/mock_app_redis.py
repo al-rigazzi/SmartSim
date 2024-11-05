@@ -47,19 +47,36 @@ class ResNetWrapper:
             buffer = io.BytesIO(model_file.read())
         self._serialized_model = buffer.getvalue()
 
-    def get_batch(self, batch_size: int = 32):
+    def get_batch(self, batch_size: int = 32) -> torch.Tensor:
+        """Create a random batch of data with the correct dimensions to
+        invoke a ResNet model.
+
+        :param batch_size: The desired number of samples to produce
+        :returns: A PyTorch tensor"""
         return torch.randn((batch_size, 3, 224, 224), dtype=torch.float32)
 
     @property
-    def model(self):
+    def model(self) -> bytes:
+        """The content of a model file.
+
+        :returns: The model bytes"""
         return self._serialized_model
 
     @property
-    def name(self):
+    def name(self) -> str:
+        """The model name
+
+        :returns: The name applied to the model"""
         return self._name
 
 
 def log(msg: str, rank: int) -> None:
+    """Print messages from first rank
+
+    this avoids lots of repeated messages in parallel executions.
+    :param msg: the message to log
+    :param rank_: MPI rank of the current process
+    """
     if rank == 0:
         logger.info(msg)
 

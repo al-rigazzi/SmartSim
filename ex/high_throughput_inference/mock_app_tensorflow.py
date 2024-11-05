@@ -26,16 +26,17 @@
 
 
 import argparse
+import typing as t
 
-from mpi4py import MPI
 import numpy
 import tensorflow as tf
+from mpi4py import MPI
 from tensorflow.python.framework.convert_to_constants import (
     convert_variables_to_constants_v2_as_graph,
 )
 
-from smartsim.log import get_logger
 from smartsim._core.mli.client.protoclient import ProtoClient
+from smartsim.log import get_logger
 
 logger = get_logger("App")
 
@@ -49,31 +50,31 @@ class ResNetWrapper:
         self._get_tf_model(model)
         self._name = name
 
-    def _get_tf_model(self, model: tf.keras.Model):
+    def _get_tf_model(self, model: tf.keras.Model) -> None:
         real_model = tf.function(model).get_concrete_function(
             tf.TensorSpec(model.inputs[0].shape, model.inputs[0].dtype)
         )
         _, graph_def = convert_variables_to_constants_v2_as_graph(real_model)
-        self._serialized_model = graph_def.SerializeToString()
+        self._serialized_model: bytes = graph_def.SerializeToString()
 
-    # pylint: disable-next=no-self-use
-    def get_batch(self, batch_size: int = 32):
+    @staticmethod
+    def get_batch(batch_size: int = 32) -> numpy.ndarray[t.Any, t.Any]:
         """Create a random batch of data with the correct dimensions to
         invoke a ResNet model.
 
         :param batch_size: The desired number of samples to produce
-        :returns: A PyTorch tensor"""
+        :returns: A Numpy tensor"""
         return numpy.random.randn(batch_size, 224, 224, 3).astype(numpy.float32)
 
     @property
-    def model(self):
-        """The content of a model file.
+    def model(self) -> bytes:
+        """The serialized model.
 
         :returns: The model bytes"""
         return self._serialized_model
 
     @property
-    def name(self):
+    def name(self) -> str:
         """The name applied to the model.
 
         :returns: The name"""
@@ -81,15 +82,23 @@ class ResNetWrapper:
 
 
 def log(msg: str, rank_: int) -> None:
+    """Print messages from first rank
+
+    this avoids lots of repeated messages in parallel executions.
+    :param msg: the message to log
+    :param rank_: MPI rank of the current process
+    """
     if rank_ == 0:
         logger.info(msg)
 
 
 if __name__ == "__main__":
 
+    logger.info("Started TensorFlow-based app")
     parser = argparse.ArgumentParser("Mock application")
     parser.add_argument("--device", default="cpu", type=str)
     parser.add_argument("--log_max_batchsize", default=8, type=int)
+    parser.add_argument("--total_iterations", type=int, default=100)
     args = parser.parse_args()
 
     resnet = ResNetWrapper("resnet50", tf.keras.applications.ResNet50())
@@ -103,12 +112,10 @@ if __name__ == "__main__":
 
     comm_world.Barrier()
 
-    TOTAL_ITERATIONS = 100
-
     for log2_bsize in range(args.log_max_batchsize, args.log_max_batchsize + 1):
         b_size: int = 2**log2_bsize
         log(f"Batch size: {b_size}", rank)
-        for iteration_number in range(TOTAL_ITERATIONS):
+        for iteration_number in range(args.total_iterations):
             sample_batch = resnet.get_batch(b_size)
             remote_result = client.run_model(resnet.name, sample_batch)
             log(
@@ -117,4 +124,4 @@ if __name__ == "__main__":
                 rank,
             )
 
-    client.perf_timer.print_timings(to_file=True, to_stdout=rank == 0)
+    client.perf_timer.print(to_file=True, to_stdout=rank == 0)

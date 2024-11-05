@@ -15,7 +15,10 @@ from smartsim.status import TERMINAL_STATUSES
 parser = argparse.ArgumentParser("Mock application")
 parser.add_argument("--log_max_batchsize", default=8, type=int)
 parser.add_argument("--num_nodes_app", default=1, type=int)
-parser.add_argument("--toolkit", default="torch", choices=["torch","tensorflow","onnx"], type=str)
+parser.add_argument(
+    "--toolkit", default="torch", choices=["torch", "tensorflow", "onnx"], type=str
+)
+parser.add_argument("--total_iterations", type=int, default=100)
 args = parser.parse_args()
 
 DEVICE = "gpu"
@@ -54,12 +57,17 @@ exp = Experiment("MLI_benchmark", launcher="dragon", exp_path=exp_path)
 
 if args.toolkit == "torch":
     from smartsim._core.mli.infrastructure.worker.torch_worker import TorchWorker
+
     worker_str = base64.b64encode(cloudpickle.dumps(TorchWorker)).decode("ascii")
 elif args.toolkit == "tensorflow":
-    from smartsim._core.mli.infrastructure.worker.tensorflow_worker import TensorFlowWorker
+    from smartsim._core.mli.infrastructure.worker.tensorflow_worker import (
+        TensorFlowWorker,
+    )
+
     worker_str = base64.b64encode(cloudpickle.dumps(TensorFlowWorker)).decode("ascii")
 elif args.toolkit == "onnx":
     from smartsim._core.mli.infrastructure.worker.onnx_worker import ONNXWorker
+
     worker_str = base64.b64encode(cloudpickle.dumps(ONNXWorker)).decode("ascii")
 
 worker_manager_rs: DragonRunSettings = exp.create_run_settings(
@@ -76,6 +84,8 @@ worker_manager_rs: DragonRunSettings = exp.create_run_settings(
         str(BATCH_TIMEOUT),
         "--num_workers",
         str(NUM_WORKERS),
+        "--total_iterations",
+        str(args.total_iterations),
     ],
 )
 

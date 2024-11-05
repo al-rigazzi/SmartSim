@@ -119,15 +119,15 @@ if __name__ == "__main__":
         "--batch_size",
         type=int,
         default=1,
-        help="How many requests the workers will try "
+        help="Maximum number of samples to aggregat into a batch inference request"
         "to aggregate before processing them",
     )
     parser.add_argument(
         "--batch_timeout",
         type=float,
         default=0.001,
-        help="How much time (in seconds) should be waited "
-        "before processing an incomplete aggregated request",
+        help="Maximum time allowed (in seconds) to aggregate samples "
+        "before processing a partial batch",
     )
     args = parser.parse_args()
 

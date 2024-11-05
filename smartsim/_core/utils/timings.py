@@ -144,7 +144,7 @@ class PerfTimer:
             return 0
         return max(len(value) for value in self._timings.values())
 
-    def print_timings(self, to_file: bool = False, to_stdout: bool = True) -> None:
+    def print(self, to_file: bool = False, to_stdout: bool = True) -> None:
         """Print timing information to standard output. If `to_file`
         is `True`, also write results to a file.
 

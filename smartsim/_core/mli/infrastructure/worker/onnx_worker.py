@@ -231,11 +231,11 @@ class ONNXWorker(MachineLearningWorkerBase):
             except Exception as e:
                 raise ValueError("Error during tensor creation") from e
 
-        sess = load_result.model
+        session = load_result.model
         if load_result.inputs is None:
             raise ValueError("Model was stored without inputs")
         try:
-            results = sess.run(
+            results = session.run(
                 load_result.outputs,
                 input_feed=dict(zip(load_result.inputs, tensors)),
             )

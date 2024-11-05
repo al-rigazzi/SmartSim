@@ -24,21 +24,19 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from pathlib import Path
 
 import argparse
 import io
-from mpi4py import MPI
-import torch
 
-from smartsim.log import get_logger
+import torch
+from mpi4py import MPI
+
 from smartsim._core.mli.client.protoclient import ProtoClient
+from smartsim.log import get_logger
 
 torch.set_num_interop_threads(16)
 torch.set_num_threads(1)
-
-logger = get_logger("App")
-logger.info("Started app")
-
 
 logger = get_logger("App")
 
@@ -46,7 +44,7 @@ logger = get_logger("App")
 class ResNetWrapper:
     """Wrapper around a pre-rained ResNet model."""
 
-    def __init__(self, name: str, model: str):
+    def __init__(self, name: str, model: Path):
         """Initialize the instance.
 
         :param name: The name to use for the model
@@ -58,8 +56,8 @@ class ResNetWrapper:
             buffer = io.BytesIO(model_file.read())
         self._serialized_model = buffer.getvalue()
 
-    # pylint: disable-next=no-self-use
-    def get_batch(self, batch_size: int = 32):
+    @staticmethod
+    def get_batch(batch_size: int = 32) -> torch.Tensor:
         """Create a random batch of data with the correct dimensions to
         invoke a ResNet model.
 
@@ -83,18 +81,26 @@ class ResNetWrapper:
 
 
 def log(msg: str, rank_: int) -> None:
+    """Print messages from first rank
+
+    this avoids lots of repeated messages in parallel executions.
+    :param msg: the message to log
+    :param rank_: MPI rank of the current process
+    """
     if rank_ == 0:
         logger.info(msg)
 
 
 if __name__ == "__main__":
 
+    logger.info("Started Torch-based app")
     parser = argparse.ArgumentParser("Mock application")
     parser.add_argument("--device", default="cpu", type=str)
     parser.add_argument("--log_max_batchsize", default=8, type=int)
+    parser.add_argument("--total_iterations", type=int, default=100)
     args = parser.parse_args()
 
-    resnet = ResNetWrapper("resnet50", f"resnet50.{args.device}.pt")
+    resnet = ResNetWrapper("resnet50", Path(f"./resnet50.{args.device}.pt"))
 
     comm_world = MPI.COMM_WORLD
     rank = comm_world.Get_rank()
@@ -105,15 +111,13 @@ if __name__ == "__main__":
 
     comm_world.Barrier()
 
-    TOTAL_ITERATIONS = 100
-
     for log2_bsize in range(args.log_max_batchsize, args.log_max_batchsize + 1):
         b_size: int = 2**log2_bsize
         log(f"Batch size: {b_size}", rank)
-        for iteration_number in range(TOTAL_ITERATIONS):
+        for iteration_number in range(args.total_iterations):
             sample_batch = resnet.get_batch(b_size).numpy()
             remote_result = client.run_model(resnet.name, sample_batch)
             comm_world.Barrier()
             logger.info(client.perf_timer.get_last("total_time"))
 
-    client.perf_timer.print_timings(to_file=True, to_stdout=rank == 0)
+    client.perf_timer.print(to_file=True, to_stdout=rank == 0)

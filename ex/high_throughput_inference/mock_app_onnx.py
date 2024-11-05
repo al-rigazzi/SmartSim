@@ -26,19 +26,18 @@
 
 
 import argparse
+import typing as t
 
-from mpi4py import MPI
 import numpy
-from numpy.polynomial import Polynomial
-
 import onnx
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.linear_model import LinearRegression
+from mpi4py import MPI
+from numpy.polynomial import Polynomial
+from skl2onnx import to_onnx  # type: ignore
+from sklearn.linear_model import LinearRegression  # type: ignore
+from sklearn.preprocessing import PolynomialFeatures  # type: ignore
 
-from skl2onnx import to_onnx
-
-from smartsim.log import get_logger
 from smartsim._core.mli.client.protoclient import ProtoClient
+from smartsim.log import get_logger
 
 logger = get_logger("App")
 
@@ -53,28 +52,28 @@ class LinRegWrapper:
         self._name = name
         self._poly = PolynomialFeatures
 
-    def _get_onnx_model(self, model: onnx.onnx_ml_pb2.ModelProto):
-        self._serialized_model = model.SerializeToString()
+    def _get_onnx_model(self, model: onnx.onnx_ml_pb2.ModelProto) -> None:
+        self._serialized_model: bytes = model.SerializeToString()
 
-    # pylint: disable-next=no-self-use
-    def get_batch(self, batch_size: int = 32):
+    @staticmethod
+    def get_batch(batch_size: int = 32) -> numpy.ndarray[t.Any, t.Any]:
         """Create a random batch of data with the correct dimensions to
-        invoke a ResNet model.
+        invoke a LinReg model.
 
         :param batch_size: The desired number of samples to produce
-        :returns: A PyTorch tensor"""
+        :returns: A Numpy tensor"""
         x = numpy.random.randn(batch_size, 1).astype(numpy.float32)
-        return poly.fit_transform(x.reshape(-1, 1))
+        return numpy.array(poly.fit_transform(x.reshape(-1, 1)))
 
     @property
-    def model(self):
-        """The content of a model file.
+    def model(self) -> bytes:
+        """The serialized model.
 
         :returns: The model bytes"""
         return self._serialized_model
 
     @property
-    def name(self):
+    def name(self) -> str:
         """The name applied to the model.
 
         :returns: The name"""
@@ -82,15 +81,22 @@ class LinRegWrapper:
 
 
 def log(msg: str, rank_: int) -> None:
+    """Print messages from first rank
+
+    this avoids lots of repeated messages in parallel executions.
+    :param msg: the message to log
+    :param rank_: MPI rank of the current process
+    """
     if rank_ == 0:
         logger.info(msg)
 
 
 if __name__ == "__main__":
-
+    logger.info("Started ONNX-based app")
     parser = argparse.ArgumentParser("Mock application")
     parser.add_argument("--device", default="cpu", type=str)
     parser.add_argument("--log_max_batchsize", default=8, type=int)
+    parser.add_argument("--total_iterations", type=int, default=100)
     args = parser.parse_args()
 
     X = numpy.linspace(0, 10, 10).astype(numpy.float32)
@@ -113,8 +119,6 @@ if __name__ == "__main__":
 
     MPI.COMM_WORLD.Barrier()
 
-    TOTAL_ITERATIONS = 100
-
     for log2_bsize in range(args.log_max_batchsize, args.log_max_batchsize + 1):
         b_size: int = 2**log2_bsize
         log(f"Batch size: {b_size}", rank)
@@ -122,9 +126,9 @@ if __name__ == "__main__":
             sample_batch = linreg.get_batch(b_size)
             remote_result = client.run_model(linreg.name, sample_batch)
             log(
-                f"Completed iteration: {iteration_number} "
+                f"Completed iteration: {args.total_iterations} "
                 f"in {client.perf_timer.get_last('total_time')} seconds",
                 rank,
             )
 
-    client.perf_timer.print_timings(to_file=True, to_stdout=rank == 0)
+    client.perf_timer.print(to_file=True, to_stdout=rank == 0)

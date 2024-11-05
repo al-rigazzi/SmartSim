@@ -31,6 +31,9 @@ import time
 
 from smartsim import Experiment
 from smartsim.status import TERMINAL_STATUSES
+from smartsim.log import get_logger
+
+logger = get_logger("App")
 
 DEVICE = "gpu"
 NUM_TASKS_PER_NODE = 16
@@ -91,4 +94,4 @@ while True:
         break
     time.sleep(5)
 
-print("Exiting.")
+logger.info("Exiting.")
